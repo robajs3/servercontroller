@@ -1,0 +1,8 @@
+{% if stale %}
+  <div class="pill warn">BRAK DANYCH</div><p class="muted">Worker nie zapisuje pomiarów.</p>
+{% else %}
+  <div class="pill {{ 'ok' if ev and ev.state == 'ONLINE' else 'bad' }}">{{ ev.state if ev else '—' }}</div>
+  <p>{{ host }} &middot; ICMP: {{ ('%.1f ms' % last.rtt_ms) if last.ok else 'brak' }}
+     &middot; TCP: {{ ('%.1f ms' % last.tcp_ms) if last.tcp_ok else 'brak' }}</p>
+  {% if ev %}<p class="muted">od {{ ev.ts.astimezone().strftime('%d.%m %H:%M:%S') }}</p>{% endif %}
+{% endif %}

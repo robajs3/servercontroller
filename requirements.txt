@@ -1,0 +1,13 @@
+Flask==3.0.3
+Flask-SQLAlchemy==3.1.1
+Flask-Login==0.6.3
+Flask-WTF==1.2.1
+Flask-Limiter==3.8.0
+SQLAlchemy==2.0.32
+psycopg[binary]==3.2.1
+gunicorn==22.0.0
+APScheduler==3.10.4
+argon2-cffi==23.1.0
+pyotp==2.9.0
+qrcode==7.4.2
+icmplib==3.0.4

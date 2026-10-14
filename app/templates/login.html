@@ -1,0 +1,10 @@
+{% extends "base.html" %}{% block body %}
+<form method="post" class="card narrow">
+  <h2>Logowanie</h2>
+  {% for m in get_flashed_messages() %}<p class="err">{{ m }}</p>{% endfor %}
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input name="username" placeholder="Użytkownik" autocomplete="username" required autofocus>
+  <input name="password" type="password" placeholder="Hasło" autocomplete="current-password" required>
+  <input name="code" placeholder="Kod 2FA (6 cyfr)" inputmode="numeric" autocomplete="one-time-code" required>
+  <button>Zaloguj</button>
+</form>{% endblock %}

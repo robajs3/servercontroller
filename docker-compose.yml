@@ -1,0 +1,39 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: panel
+      POSTGRES_USER: panel
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U panel -d panel"]
+      interval: 5s
+      retries: 10
+
+  web:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://panel:${DB_PASSWORD}@db/panel
+    depends_on:
+      db: {condition: service_healthy}
+    # tylko localhost: wystawia go `tailscale funnel 8000`
+    ports: ["127.0.0.1:8000:8000"]
+    command: sh -c "flask --app app init-db && gunicorn -w 1 --threads 4 -b 0.0.0.0:8000 'app:create_app()'"
+
+  worker:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://panel:${DB_PASSWORD}@db/panel
+    sysctls:
+      net.ipv4.ping_group_range: "0 2147483647"   # ICMP bez root/NET_RAW
+    depends_on: [web]
+    command: python -m app.worker
+
+volumes:
+  pgdata:
