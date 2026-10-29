@@ -17,7 +17,8 @@ AGG_DAYS = int(os.getenv("RETENTION_DAYS_AGG", 30))
 
 app = create_app()
 fails = 0
-state = None
+BOOT_TIMEOUT = int(os.getenv("BOOT_TIMEOUT", 300))
+SHUTDOWN_TIMEOUT = int(os.getenv("SHUTDOWN_TIMEOUT", 120))
 
 def probe():
     r = ping(HOST, count=1, timeout=1, privileged=False)
@@ -31,19 +32,28 @@ def probe():
     return icmp_ok, rtt, tcp_ok, tcp_ms
 
 def tick():
-    global fails, state
+    global fails
     try:
         icmp_ok, rtt, tcp_ok, tcp_ms = probe()
+        alive = icmp_ok or tcp_ok
         with app.app_context():
             db.session.add(PingSample(ok=icmp_ok, rtt_ms=rtt, tcp_ok=tcp_ok, tcp_ms=tcp_ms))
-            if state is None:
-                last = StatusEvent.query.order_by(StatusEvent.id.desc()).first()
-                state = last.state if last else None
-            fails = 0 if (icmp_ok or tcp_ok) else fails + 1
-            new = "ONLINE" if fails == 0 else ("OFFLINE" if fails >= THRESHOLD else state)
+            fails = 0 if alive else fails + 1
+            last = StatusEvent.query.order_by(StatusEvent.id.desc()).first()  # web też zapisuje zdarzenia
+            state = last.state if last else None
+            age = (now() - last.ts).total_seconds() if last else 0
+            new = state
+            if state == "BOOTING":
+                if alive: new = "ONLINE"
+                elif age > BOOT_TIMEOUT: new = "OFFLINE"        # nie wstał
+            elif state == "SHUTTING_DOWN":
+                if fails >= THRESHOLD: new = "OFFLINE"
+                elif age > SHUTDOWN_TIMEOUT: new = "ONLINE"     # nie wyłączył się
+            elif alive: new = "ONLINE"
+            elif fails >= THRESHOLD: new = "OFFLINE"
             if new and new != state:
-                db.session.add(StatusEvent(state=new)); state = new
-                log.info("Zmiana stanu: %s", new)   # tu w etapie 5 wyślemy push
+                db.session.add(StatusEvent(state=new))
+                log.info("Zmiana stanu: %s -> %s", state, new)  # etap 5: push
             db.session.commit()
     except Exception:
         log.exception("tick failed")

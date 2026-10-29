@@ -8,6 +8,8 @@ from flask_login import login_user, logout_user, login_required, current_user
 from sqlalchemy import text
 from .extensions import db, limiter
 from .models import User, AuditLog, PingSample, StatusEvent, now
+from markupsafe import escape
+from . import actions
 
 bp = Blueprint("main", __name__)
 ph = PasswordHasher()
@@ -83,3 +85,50 @@ def api_ping():
                      "rtt": round(r.rtt, 2) if r.rtt is not None else None,
                      "max": round(r.mx, 2) if r.mx is not None else None,
                      "loss": round(float(r.loss), 1)} for r in rows])
+
+def _last_state():
+    ev = StatusEvent.query.order_by(StatusEvent.id.desc()).first()
+    return ev.state if ev else None
+
+def _result(msg, ok):
+    cls = "ok-t" if ok else "err"
+    r = current_app_response(f'<p class="{cls}">{escape(msg)}</p>')
+    r.headers["HX-Trigger"] = "refresh-status"
+    return r
+
+def current_app_response(html):
+    from flask import make_response
+    return make_response(html)
+
+@bp.post("/actions/wake")
+@login_required
+@limiter.limit("5/minute")
+def act_wake():
+    if _last_state() == "ONLINE":
+        return _result("Serwer już działa.", False)
+    try:
+        actions.wake()
+    except Exception as e:
+        audit(f"wake FAIL: {type(e).__name__}")
+        return _result("Nie udało się wysłać pakietu WoL (usługa wol).", False)
+    db.session.add(StatusEvent(state="BOOTING")); db.session.commit()
+    audit("wake")
+    return _result("Wysłano magic packet. Czekam na start serwera…", True)
+
+@bp.post("/actions/shutdown")
+@login_required
+@limiter.limit("3/minute")
+def act_shutdown():
+    try:
+        ph.verify(current_user.password_hash, request.form.get("password", ""))
+    except VerifyMismatchError:
+        audit("shutdown DENIED (zle haslo)")
+        return _result("Nieprawidłowe hasło.", False)
+    try:
+        actions.shutdown()
+    except Exception as e:
+        audit(f"shutdown FAIL: {type(e).__name__}: {str(e)[:120]}")
+        return _result(f"Nie udało się wyłączyć: {type(e).__name__}", False)
+    db.session.add(StatusEvent(state="SHUTTING_DOWN")); db.session.commit()
+    audit("shutdown")
+    return _result("Wysłano polecenie wyłączenia.", True)

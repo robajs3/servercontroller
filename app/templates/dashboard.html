@@ -1,9 +1,15 @@
 {% extends "base.html" %}{% block body %}
 <section class="card">
   <h3>{{ config.MAIN_NAME }}</h3>
-  <div hx-get="{{ url_for('main.status') }}" hx-trigger="load, every 5s [document.visibilityState=='visible']">…</div>
-  <div class="row"><button disabled>Włącz (WoL)</button><button disabled>Wyłącz</button>
-    <span class="muted">dostępne w etapie 3</span></div>
+  <div hx-get="{{ url_for('main.status') }}" hx-trigger="load, refresh-status from:body, every 5s [document.visibilityState=='visible']">…</div>
+  <div class="row">
+    <button hx-post="{{ url_for('main.act_wake') }}" hx-target="#act" hx-confirm="Wysłać Wake-on-LAN?">Włącz (WoL)</button>
+    <form class="row" hx-post="{{ url_for('main.act_shutdown') }}" hx-target="#act" hx-confirm="Na pewno wyłączyć serwer?">
+      <input type="password" name="password" placeholder="Hasło" autocomplete="current-password" required style="width:11rem">
+      <button class="danger">Wyłącz</button>
+    </form>
+  </div>
+  <div id="act"></div>
 </section>
 <section class="card">
   <div class="row"><h3>Ping</h3>

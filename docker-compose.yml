@@ -22,6 +22,8 @@ services:
       db: {condition: service_healthy}
     # tylko localhost: wystawia go `tailscale funnel 8000`
     ports: ["127.0.0.1:8000:8000"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    volumes: ["./secrets:/secrets:ro"]
     command: sh -c "flask --app app init-db && gunicorn -w 1 --threads 4 -b 0.0.0.0:8000 'app:create_app()'"
 
   worker:
@@ -34,6 +36,14 @@ services:
       net.ipv4.ping_group_range: "0 2147483647"   # ICMP bez root/NET_RAW
     depends_on: [web]
     command: python -m app.worker
+
+  wol:
+    image: python:3.12-alpine
+    restart: unless-stopped
+    network_mode: host          # broadcast musi wyjść do LAN
+    env_file: .env
+    volumes: ["./wol:/srv:ro"]
+    command: python /srv/wol.py
 
 volumes:
   pgdata:

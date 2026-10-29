@@ -11,3 +11,4 @@ argon2-cffi==23.1.0
 pyotp==2.9.0
 qrcode==7.4.2
 icmplib==3.0.4
+paramiko==3.4.0
