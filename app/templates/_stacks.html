@@ -1,0 +1,11 @@
+{% if err or code != 200 %}<p class="err">Agent: {{ err or code }}</p>{% endif %}
+{% for s in stacks %}
+<div class="row stack">
+  <div style="flex:1;min-width:12rem"><b>{{ s.name }}</b><br><span class="muted">{{ s.path }}/{{ s.file }}</span></div>
+  <button class="ghost sm" hx-get="{{ url_for('dock.st_edit', key=key, name=s.name) }}" hx-target="#editor">Edytuj</button>
+  <button class="sm" hx-post="{{ url_for('dock.st_run', key=key, name=s.name, action='up') }}" hx-target="#job" hx-swap="outerHTML" hx-confirm="Wykonać „up -d” dla {{ s.name }}?">Up</button>
+  <button class="ghost sm" hx-post="{{ url_for('dock.st_run', key=key, name=s.name, action='pull') }}" hx-target="#job" hx-swap="outerHTML">Pull</button>
+  <button class="ghost sm" hx-post="{{ url_for('dock.st_run', key=key, name=s.name, action='restart') }}" hx-target="#job" hx-swap="outerHTML" hx-confirm="Zrestartować cały stos {{ s.name }}?">Restart</button>
+  <button class="danger sm" hx-post="{{ url_for('dock.st_run', key=key, name=s.name, action='down') }}" hx-target="#job" hx-swap="outerHTML" hx-confirm="Wykonać „down” (usuwa kontenery stosu {{ s.name }}, wolumeny zostają)?">Down</button>
+</div>
+{% else %}<p class="muted">Brak stosów. Dodaj katalogi w <code>AGENT_STACK_DIRS</code> (agent.env) albo utwórz nowy stos poniżej.</p>{% endfor %}

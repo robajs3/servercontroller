@@ -3,7 +3,7 @@ from datetime import timedelta
 from apscheduler.schedulers.blocking import BlockingScheduler
 from icmplib import ping
 from sqlalchemy import text
-from . import create_app, agents
+from . import create_app, agents, dockerstate
 from .extensions import db
 from .models import PingSample, StatusEvent, AgentState, MetricSample, now
 
@@ -12,6 +12,7 @@ HOST = os.environ["MAIN_HOST"]
 TCP_PORT = int(os.getenv("MAIN_TCP_PORT", 22))
 INTERVAL = int(os.getenv("PING_INTERVAL", 10))
 THRESHOLD = int(os.getenv("FAIL_THRESHOLD", 3))
+CONTAINER_POLL_INTERVAL = int(os.getenv("CONTAINER_POLL_INTERVAL", 30))
 METRICS_INTERVAL = int(os.getenv("METRICS_INTERVAL", 15))
 RAW_DAYS = max(int(os.getenv("RETENTION_DAYS_RAW", 2)), 1)
 AGG_DAYS = int(os.getenv("RETENTION_DAYS_AGG", 30))
@@ -88,6 +89,14 @@ def collect():
         except Exception:
             log.exception("collect failed (%s)", a["key"])
 
+def collect_docker():
+    for a in agents.AGENTS.values():
+        try:
+            with app.app_context():
+                dockerstate.refresh(a, stats=True)
+        except Exception:
+            log.exception("docker collect failed (%s)", a["key"])
+
 def maintenance():
     try:
         with app.app_context():
@@ -118,6 +127,8 @@ def maintenance():
                                {"c": now() - timedelta(days=RAW_DAYS)})
             db.session.execute(text("DELETE FROM metric_agg WHERE bucket < :c"),
                                {"c": now() - timedelta(days=AGG_DAYS)})
+            db.session.execute(text("DELETE FROM container_events WHERE ts < :c"),
+                               {"c": now() - timedelta(days=AGG_DAYS)})
             db.session.commit()
     except Exception:
         log.exception("maintenance failed")
@@ -127,5 +138,6 @@ if __name__ == "__main__":
     s = BlockingScheduler(timezone="UTC")
     s.add_job(tick, "interval", seconds=INTERVAL, max_instances=1, coalesce=True)
     s.add_job(collect, "interval", seconds=METRICS_INTERVAL, max_instances=1, coalesce=True)
+    s.add_job(collect_docker, "interval", seconds=CONTAINER_POLL_INTERVAL, max_instances=1, coalesce=True)
     s.add_job(maintenance, "interval", minutes=10, max_instances=1)
     s.start()

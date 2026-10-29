@@ -1,0 +1,10 @@
+<div class="row"><b>{{ name }}</b>
+  <button class="ghost sm" hx-get="{{ url_for('dock.st_edit', key=key, name=name, kind='compose') }}" hx-target="#editor">{{ 'docker-compose' if kind != 'compose' else '● docker-compose' }}</button>
+  <button class="ghost sm" hx-get="{{ url_for('dock.st_edit', key=key, name=name, kind='env') }}" hx-target="#editor">{{ '.env' if kind != 'env' else '● .env' }}</button></div>
+{% if not exists %}<p class="muted">Plik {{ file }} jeszcze nie istnieje, zapis go utworzy.</p>{% endif %}
+<form hx-post="{{ url_for('dock.st_save', key=key, name=name) }}" hx-target="#emsg">
+  <input type="hidden" name="kind" value="{{ kind }}">
+  <textarea name="content" class="code" rows="22" spellcheck="false">{{ content }}</textarea>
+  <div class="row"><input type="password" name="password" placeholder="Hasło" autocomplete="current-password" required style="width:12rem"><button>Zapisz</button></div>
+</form>
+<div id="emsg"></div>

@@ -76,3 +76,23 @@ class MetricAgg(db.Model):                                # średnie minutowe
     ram_pct = db.Column(db.Float)
     temp_max = db.Column(db.Float)
     n = db.Column(db.Integer, nullable=False)
+
+class DockerState(db.Model):                              # ostatni znany stan kontenerów
+    __tablename__ = "docker_state"
+    server = db.Column(db.String(32), primary_key=True)
+    checked = db.Column(db.DateTime(timezone=True))
+    ok = db.Column(db.Boolean, default=False)
+    error = db.Column(db.String(160))
+    data = db.Column(JSONB)
+
+class ContainerEvent(db.Model):
+    __tablename__ = "container_events"
+    id = db.Column(db.BigInteger, primary_key=True)
+    server = db.Column(db.String(32), nullable=False)
+    name = db.Column(db.String(128), nullable=False)
+    ts = db.Column(db.DateTime(timezone=True), nullable=False)
+    kind = db.Column(db.String(16), nullable=False)       # seen up stop crash restart oom unhealthy healthy gone
+    state_after = db.Column(db.String(16), nullable=False)  # up crashed stopped gone
+    exit_code = db.Column(db.Integer)
+    detail = db.Column(db.String(200))
+    __table_args__ = (db.Index("ix_ce_server_ts", "server", "ts"),)

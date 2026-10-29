@@ -10,7 +10,6 @@ EnvironmentFile=/opt/panel-agent/agent.env
 ExecStart=/opt/panel-agent/venv/bin/gunicorn -w 1 --threads 4 -b ${AGENT_BIND}:${AGENT_PORT} agent:app
 Restart=always
 NoNewPrivileges=true
-ProtectHome=true
 PrivateTmp=true
 
 [Install]

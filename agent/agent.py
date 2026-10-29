@@ -5,6 +5,7 @@ from flask import Flask, jsonify, request, abort
 
 TOKEN = os.environ["AGENT_TOKEN"].encode()
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = 512 * 1024
 _cpu = {"total": 0.0, "per": []}
 
 def _sampler():
@@ -90,15 +91,20 @@ def net():
         rx += c.bytes_recv; tx += c.bytes_sent
     return {"rx": rx, "tx": tx}
 
+@app.before_request
+def _auth():
+    if request.path == "/health":
+        return
+    h = request.headers.get("Authorization", "")
+    if not h.startswith("Bearer ") or not hmac.compare_digest(h[7:].encode(), TOKEN):
+        abort(403)
+
 @app.get("/health")
 def health():
     return {"ok": True}
 
 @app.get("/metrics")
 def metrics():
-    auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer ") or not hmac.compare_digest(auth[7:].encode(), TOKEN):
-        abort(403)
     vm, sw = psutil.virtual_memory(), psutil.swap_memory()
     used = vm.total - vm.available
     freq = psutil.cpu_freq()
@@ -113,3 +119,9 @@ def metrics():
                 "swap_total": sw.total, "swap_used": sw.used},
         "disks": disks(), "temps": tlist, "temp_max": tmax, "net": net(), "gpus": gpus(),
     })
+
+try:
+    from dockerapi import bp as _docker_bp
+    app.register_blueprint(_docker_bp)
+except ImportError as e:   # brak pakietu `docker`: reszta agenta działa
+    print("API Dockera wyłączone:", e)

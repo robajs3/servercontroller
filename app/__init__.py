@@ -26,6 +26,8 @@ def create_app():
 
     from .routes import bp
     app.register_blueprint(bp)
+    from .docker_routes import dbp
+    app.register_blueprint(dbp)
 
     @app.after_request
     def headers(r):

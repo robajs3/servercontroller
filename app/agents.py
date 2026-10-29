@@ -18,3 +18,12 @@ def fetch(a):
                      headers={"Authorization": "Bearer " + a["token"]})
     r.raise_for_status()
     return r.json()
+
+def call(a, method, path, timeout=10, **kw):
+    return requests.request(method, a["url"] + path, timeout=timeout, verify=a["verify"],
+                            headers={"Authorization": "Bearer " + a["token"]}, **kw)
+
+def containers(a, stats=False):
+    r = call(a, "GET", "/docker/containers" + ("?stats=1" if stats else ""), timeout=25)
+    r.raise_for_status()
+    return r.json()["containers"]

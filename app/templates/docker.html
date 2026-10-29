@@ -1,0 +1,43 @@
+{% extends "base.html" %}{% block body %}
+<div class="row tabs">{% for a in agents %}<a class="tab {{ 'on' if a.key == key }}" href="?s={{ a.key }}">{{ a.name }}</a>{% endfor %}</div>
+<section class="card">
+  <h3>Kontenery</h3>
+  <div id="dmsg"></div>
+  <div class="scroll" hx-get="{{ url_for('dock.docker_partial', key=key) }}" hx-trigger="load, refresh-docker from:body, every 10s [document.visibilityState=='visible']">…</div>
+  <div id="logbox"></div>
+</section>
+<section class="card">
+  <div class="row"><h3>Oś czasu</h3>{% for r in ['6h','24h','7d','30d'] %}<button class="ghost sm trng" data-r="{{ r }}">{{ r }}</button>{% endfor %}</div>
+  <div id="tl"></div>
+  <p class="muted"><span class="dot s-up"></span> działa <span class="dot s-crashed"></span> awaria <span class="dot s-stopped"></span> zatrzymany <span class="dot s-mark"></span> restart / OOM</p>
+</section>
+<section class="card"><h3>Zdarzenia</h3>
+  <div hx-get="{{ url_for('dock.docker_events', key=key) }}" hx-trigger="load, refresh-docker from:body, every 30s [document.visibilityState=='visible']">…</div>
+</section>
+<script>
+let trange = '24h';
+async function loadTl() {
+  const d = await (await fetch(`/api/docker/timeline?server={{ key }}&range=${trange}`)).json();
+  const a = new Date(d.from).getTime(), span = new Date(d.to).getTime() - a;
+  const pct = t => Math.max(0, Math.min(100, (new Date(t).getTime() - a) / span * 100));
+  const fmt = t => new Date(t).toLocaleString('pl', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
+  const el = document.getElementById('tl'); el.innerHTML = '';
+  if (!d.rows.length) { el.innerHTML = '<p class="muted">Brak danych. Zdarzenia zbiera worker od swojego uruchomienia.</p>'; return; }
+  for (const r of d.rows) {
+    const row = document.createElement('div'); row.className = 'tl-row';
+    const nm = document.createElement('div'); nm.className = 'tl-name'; nm.textContent = r.name; nm.title = r.name;
+    const bar = document.createElement('div'); bar.className = 'tl-bar';
+    for (const [s, e, st] of r.segs) {
+      const i = document.createElement('i'); i.className = 's-' + st;
+      i.style.left = pct(s) + '%'; i.style.width = Math.max(pct(e) - pct(s), .4) + '%';
+      i.title = `${st}: ${fmt(s)} → ${fmt(e)}`; bar.appendChild(i);
+    }
+    for (const [t, k] of r.marks) {
+      const m = document.createElement('b'); m.style.left = pct(t) + '%'; m.title = `${k} ${fmt(t)}`; bar.appendChild(m);
+    }
+    row.append(nm, bar); el.appendChild(row);
+  }
+}
+document.querySelectorAll('.trng').forEach(b => b.onclick = () => { trange = b.dataset.r; loadTl(); });
+loadTl(); setInterval(() => document.visibilityState === 'visible' && loadTl(), 30000);
+</script>{% endblock %}

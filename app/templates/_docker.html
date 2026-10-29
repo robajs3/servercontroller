@@ -1,0 +1,29 @@
+{% if not st %}<p class="muted">Brak danych Dockera. Worker pobierze je w ciągu ~{{ 30 }} s.</p>
+{% else %}
+  {% if not st.ok %}<p class="err">Docker/agent niedostępny: {{ st.error }}{% if st.data %} (ostatnie znane dane z {{ st.checked|local }}){% endif %}</p>{% endif %}
+  {% if cs %}
+  <table>
+    <tr><th>Kontener</th><th>Stan</th><th>CPU</th><th>RAM</th><th>Restarty</th><th></th></tr>
+    {% for c in cs %}
+    <tr>
+      <td><b>{{ c.name }}</b><br><span class="muted">{{ c.project or '–' }} · {{ c.image }}{% if c.ports %} · {{ c.ports|join(', ') }}{% endif %}</span></td>
+      <td><span class="pill sm {{ c.cls }}">{{ c.state }}</span>
+        {% if c.health %}<span class="muted">{{ c.health }}</span>{% endif %}
+        {% if c.up_since %}<br><span class="muted">od {{ (now - c.up_since).total_seconds()|uptime }}</span>
+        {% elif c.exit_code is not none and c.state != 'created' %}<br><span class="muted">kod {{ c.exit_code }}{% if c.oom %} · OOM{% endif %}</span>{% endif %}</td>
+      <td>{% if c.cpu is defined %}{{ '%.1f'|format(c.cpu) }}%{% else %}–{% endif %}</td>
+      <td>{% if c.mem is defined %}{{ c.mem|mb }}{% else %}–{% endif %}</td>
+      <td>{{ c.restarts }}</td>
+      <td class="acts">
+        {% if c.state != 'running' %}<button class="sm" hx-post="{{ url_for('dock.c_action', key=key, cid=c.id, act='start') }}" hx-target="#dmsg">Start</button>{% endif %}
+        {% if c.state == 'running' and not c.protected %}
+          <button class="ghost sm" hx-post="{{ url_for('dock.c_action', key=key, cid=c.id, act='restart') }}" hx-target="#dmsg" hx-confirm="Zrestartować {{ c.name }}?">Restart</button>
+          <button class="danger sm" hx-post="{{ url_for('dock.c_action', key=key, cid=c.id, act='stop') }}" hx-target="#dmsg" hx-confirm="Zatrzymać {{ c.name }}?">Stop</button>
+        {% endif %}
+        <button class="ghost sm" hx-get="{{ url_for('dock.c_logs', key=key, cid=c.id) }}" hx-target="#logbox">Logi</button>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% elif st.ok %}<p class="muted">Brak kontenerów.</p>{% endif %}
+{% endif %}

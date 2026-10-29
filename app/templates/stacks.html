@@ -1,0 +1,27 @@
+{% extends "base.html" %}{% block body %}
+<div class="row tabs">{% for a in agents %}<a class="tab {{ 'on' if a.key == key }}" href="?s={{ a.key }}">{{ a.name }}</a>{% endfor %}</div>
+<section class="card">
+  <h3>Stosy docker compose</h3>
+  <div hx-get="{{ url_for('dock.stacks_partial', key=key) }}" hx-trigger="load, refresh-stacks from:body">…</div>
+  <div id="job"></div>
+</section>
+<section class="card"><h3>Edytor</h3>
+  <div id="editor"><p class="muted">Wybierz „Edytuj” przy stosie. Zapis wymaga hasła i przechodzi walidację <code>docker compose config</code>; poprzednia wersja trafia do kopii <code>.bak</code>.</p></div>
+</section>
+<section class="card">
+  <details><summary><b>Nowy stos</b></summary>
+    <form hx-post="{{ url_for('dock.st_new', key=key) }}" hx-target="#newmsg">
+      <input name="name" placeholder="nazwa (np. moja-apka)" pattern="[a-z0-9][a-z0-9_-]{0,40}" required>
+      <textarea name="content" class="code" rows="12" spellcheck="false" required>services:
+  app:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "8081:80"
+</textarea>
+      <input type="password" name="password" placeholder="Hasło" autocomplete="current-password" required>
+      <button>Utwórz</button>
+    </form><div id="newmsg"></div>
+  </details>
+</section>
+{% endblock %}

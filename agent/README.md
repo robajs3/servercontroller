@@ -15,3 +15,14 @@ Tunel Tailscale (WireGuard) już szyfruje ruch, więc HTTPS jest dodatkiem. Jeś
 3. W `.env` panelu: `AGENT_MAIN_URL=https://main.TAILNET.ts.net:8765` (certyfikat jest publicznie zaufany, więc `VERIFY=1`).
 Uwaga: kontener `worker` musi rozwiązać nazwę `*.ts.net`. Jeśli nie potrafi, użyj `extra_hosts` z IP Tailscale serwera
 albo zostań przy HTTP po IP z LAN. Certyfikaty `tailscale cert` wygasają po ~90 dniach, odnawiaj je (cron).
+
+## Etap 5: Docker i stosy compose
+Po zaktualizowaniu plików agenta uruchom ponownie `sudo ./install.sh` (idempotentny: zachowuje token, dodaje agenta do grupy `docker`, tworzy `/opt/stacks`, restartuje usługę).
+Wymagane: `docker compose` (wtyczka v2). Członkostwo w grupie `docker` daje agentowi uprawnienia równoważne rootowi, więc pilnuj tokenu i portu 8765.
+
+Stosy compose:
+- Nowe stosy tworzone z panelu trafiają do `AGENT_STACKS_ROOT` (domyślnie `/opt/stacks/<nazwa>/docker-compose.yml`).
+- Istniejące, w różnych katalogach: dopisz je do `AGENT_STACK_DIRS` w `/opt/panel-agent/agent.env` (lista po przecinku, każdy katalog z plikiem compose), potem `sudo systemctl restart panel-agent`.
+- Agent musi móc zapisywać w tych katalogach i czytać `.env`. Najprościej przez ACL (`sudo apt install acl`):
+  `sudo setfacl -R -m u:panel-agent:rwX /ścieżka/stosu && sudo setfacl -R -d -m u:panel-agent:rwX /ścieżka/stosu`
+- Edytować można tylko plik compose i `.env` stosu. Zapis compose jest poprzedzony `docker compose config` i kopią `.bak` (ostatnie 5).

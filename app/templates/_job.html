@@ -1,0 +1,7 @@
+<div id="job" {% if j.status == 'running' %}hx-get="{{ url_for('dock.job', key=key, jid=j.id) }}" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+  <p><b>{{ j.stack }} · {{ j.action }}</b>
+    {% if j.status == 'running' %}<span class="pill sm warn">trwa…</span>
+    {% elif j.rc == 0 %}<span class="pill sm ok">OK</span>
+    {% else %}<span class="pill sm bad">błąd ({{ j.rc }})</span>{% endif %}</p>
+  <pre class="log">{{ j.output }}</pre>
+</div>

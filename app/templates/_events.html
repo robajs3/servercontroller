@@ -1,0 +1,7 @@
+{% set L = {'seen':'wykryty','up':'uruchomiony','stop':'zatrzymany','crash':'AWARIA','restart':'restart','oom':'OOM','unhealthy':'niezdrowy','healthy':'zdrowy','gone':'usunięty'} %}
+{% if not evs %}<p class="muted">Brak zdarzeń.</p>{% else %}
+<div class="scroll"><table>
+{% for e in evs %}<tr><td class="muted">{{ e.ts|local }}</td><td><b>{{ e.name }}</b></td>
+  <td><span class="pill sm {{ 'bad' if e.kind in ('crash','oom','unhealthy') else ('ok' if e.kind in ('up','healthy') else 'gray') }}">{{ L.get(e.kind, e.kind) }}</span></td>
+  <td class="muted">{{ e.detail or '' }}</td></tr>{% endfor %}
+</table></div>{% endif %}
