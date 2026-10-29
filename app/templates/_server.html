@@ -1,0 +1,26 @@
+{% macro bar(p) %}<div class="bar"><i class="{{ 'hot' if p >= 90 }}" style="width:{{ [p, 100]|min }}%"></i></div>{% endmacro %}
+{% set d = st.data if st and st.data else None %}
+<div class="row"><h3 style="margin:0">{{ a.name }}</h3>
+  {% if not st %}<span class="pill warn">brak danych</span>
+  {% elif st.ok %}<span class="pill ok">agent OK</span>
+  {% else %}<span class="pill bad">agent nie odpowiada</span>{% endif %}</div>
+{% if d %}
+  {% if not st.ok %}<p class="muted">Ostatnie znane dane z {{ st.last_ok|local }} ({{ st.error }})</p>{% endif %}
+  <p class="muted">{{ d.hostname }} · {{ d.os }} · uptime {{ d.uptime|uptime }}<br>
+    {{ d.cpu.model }} · {{ d.cpu.cores }} rdz. / {{ d.cpu.threads }} wątków{% if d.cpu.freq_mhz %} · {{ '%.0f'|format(d.cpu.freq_mhz) }} MHz{% endif %}</p>
+  <div class="grid">
+    <div><b>CPU</b> {{ '%.0f'|format(d.cpu.percent) }}% <span class="muted">load {{ d.cpu.load|map('round', 2)|join(' / ') }}</span>{{ bar(d.cpu.percent) }}</div>
+    <div><b>RAM</b> {{ d.mem.used|gb }} / {{ d.mem.total|gb }} GB ({{ '%.0f'|format(d.mem.percent) }}%)
+      {% if d.mem.swap_total %}<span class="muted">swap {{ d.mem.swap_used|gb }} / {{ d.mem.swap_total|gb }} GB</span>{% endif %}{{ bar(d.mem.percent) }}</div>
+    {% for k in d.disks %}
+    <div><b>{{ k.mount }}</b> {{ k.used|gb }} / {{ k.total|gb }} GB ({{ '%.0f'|format(k.percent) }}%) <span class="muted">{{ k.fstype }}</span>{{ bar(k.percent) }}</div>
+    {% endfor %}
+    {% for g in d.gpus %}
+    <div><b>GPU</b> {{ g.name }} {{ '%.0f'|format(g.util) }}% · VRAM {{ g.mem_used|gb }} / {{ g.mem_total|gb }} GB · {{ '%.0f'|format(g.temp) }}°C{{ bar(g.util) }}</div>
+    {% endfor %}
+    {% if d.temp_max is not none %}
+    <div><b>Temp.</b> {{ '%.0f'|format(d.temp_max) }}°C <span class="muted">{% for t in d.temps[:4] %}{{ t.label }} {{ '%.0f'|format(t.current) }}° {% endfor %}</span></div>
+    {% endif %}
+    <div><b>Sieć</b> ↓ {{ (d.rates or {}).rx|rate }} · ↑ {{ (d.rates or {}).tx|rate }}</div>
+  </div>
+{% endif %}

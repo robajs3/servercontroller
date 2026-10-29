@@ -1,0 +1,584 @@
+diff --git a/.env.example b/.env.example
+index 4c88db4..5550fb3 100644
+--- a/.env.example
++++ b/.env.example
+@@ -21,3 +21,15 @@ MAIN_SSH_USER=panel
+ MAIN_SSH_PORT=22
+ BOOT_TIMEOUT=300                           # po tylu s bez odpowiedzi: "nie wstał"
+ SHUTDOWN_TIMEOUT=120
++
++# --- Etap 4: agenci metryk ---
++PANEL_TZ=Europe/Warsaw
++METRICS_INTERVAL=15
++AGENT_KEYS=main,local
++AGENT_MAIN_NAME=Serwer główny
++AGENT_MAIN_URL=http://192.168.1.10:8765    # lub https://main.TAILNET.ts.net:8765 (patrz agent/README.md)
++AGENT_MAIN_TOKEN=token_z_install.sh
++AGENT_MAIN_VERIFY=1
++AGENT_LOCAL_NAME=Serwer dodatkowy
++AGENT_LOCAL_URL=http://host.docker.internal:8765
++AGENT_LOCAL_TOKEN=token_z_install.sh
+diff --git a/agent/README.md b/agent/README.md
+new file mode 100644
+index 0000000..f718600
+--- /dev/null
++++ b/agent/README.md
+@@ -0,0 +1,17 @@
++# Agent metryk
++Instalacja na KAŻDYM serwerze (Ubuntu/Debian, Python 3): skopiuj katalog `agent/`, potem `sudo ./install.sh`.
++Skrypt wypisze token; wpisz go do `.env` panelu (AGENT_MAIN_TOKEN / AGENT_LOCAL_TOKEN). Test: `curl -H "Authorization: Bearer TOKEN" localhost:8765/metrics`.
++
++## Sieć
++- Agent słucha na `AGENT_BIND:AGENT_PORT` (domyślnie 0.0.0.0:8765) i wymaga tokenu. Nie wystawiaj go do internetu.
++- **Serwer dodatkowy (ten z panelem):** worker łączy się przez `host.docker.internal`. Przy ufw:
++  `sudo ufw allow from 172.16.0.0/12 to any port 8765 proto tcp`
++- **Serwer główny:** `sudo ufw allow from IP_SERWERA_DODATKOWEGO to any port 8765 proto tcp`
++
++## HTTPS przez Tailscale (opcjonalnie)
++Tunel Tailscale (WireGuard) już szyfruje ruch, więc HTTPS jest dodatkiem. Jeśli chcesz:
++1. Na głównym: `sudo tailscale cert main.TAILNET.ts.net` (pliki .crt/.key), skopiuj do `/opt/panel-agent/cert.pem` i `key.pem`, `chown panel-agent`.
++2. W `/opt/panel-agent/agent.env` odkomentuj `GUNICORN_CMD_ARGS=...`, potem `sudo systemctl restart panel-agent`.
++3. W `.env` panelu: `AGENT_MAIN_URL=https://main.TAILNET.ts.net:8765` (certyfikat jest publicznie zaufany, więc `VERIFY=1`).
++Uwaga: kontener `worker` musi rozwiązać nazwę `*.ts.net`. Jeśli nie potrafi, użyj `extra_hosts` z IP Tailscale serwera
++albo zostań przy HTTP po IP z LAN. Certyfikaty `tailscale cert` wygasają po ~90 dniach, odnawiaj je (cron).
+diff --git a/agent/agent.py b/agent/agent.py
+new file mode 100644
+index 0000000..3839238
+--- /dev/null
++++ b/agent/agent.py
+@@ -0,0 +1,115 @@
++"""Agent metryk. Działa na hoście (systemd), nie w kontenerze. Etap 5 doda Dockera."""
++import hmac, os, platform, shutil, subprocess, threading, time
++import psutil
++from flask import Flask, jsonify, request, abort
++
++TOKEN = os.environ["AGENT_TOKEN"].encode()
++app = Flask(__name__)
++_cpu = {"total": 0.0, "per": []}
++
++def _sampler():
++    psutil.cpu_percent(None); psutil.cpu_percent(None, percpu=True)
++    while True:
++        time.sleep(2)
++        _cpu["total"] = psutil.cpu_percent(None)
++        _cpu["per"] = psutil.cpu_percent(None, percpu=True)
++threading.Thread(target=_sampler, daemon=True).start()
++
++def cpu_model():
++    found = {}
++    try:
++        for line in open("/proc/cpuinfo"):
++            k, _, v = line.partition(":")
++            found.setdefault(k.strip(), v.strip())   # x86: "model" to numer, nazwa jest w "model name"
++    except OSError:
++        pass
++    for key in ("model name", "Hardware", "Model"):   # kolejność ma znaczenie (Pi: "Model")
++        if found.get(key):
++            return found[key]
++    return platform.processor() or platform.machine()
++
++def os_name():
++    try:
++        return platform.freedesktop_os_release().get("PRETTY_NAME", platform.system())
++    except OSError:
++        return platform.system()
++
++SKIP_FS = {"squashfs", "tmpfs", "devtmpfs", "overlay", "proc", "sysfs", "cgroup2", "efivarfs", "ramfs"}
++SKIP_MP = ("/snap", "/var/lib/docker", "/run", "/sys", "/proc")
++
++def disks():
++    seen, out = set(), []
++    for p in psutil.disk_partitions(all=False):
++        if p.fstype in SKIP_FS or p.device in seen or p.device.startswith("/dev/loop") or p.mountpoint.startswith(SKIP_MP):
++            continue
++        seen.add(p.device)
++        try:
++            u = psutil.disk_usage(p.mountpoint)
++        except OSError:
++            continue
++        out.append({"mount": p.mountpoint, "device": p.device, "fstype": p.fstype,
++                    "total": u.total, "used": u.used, "percent": u.percent})
++    return out
++
++CPU_CHIPS = ("coretemp", "k10temp", "zenpower", "cpu_thermal", "cpu-thermal", "acpitz")
++
++def temps():
++    if not hasattr(psutil, "sensors_temperatures"):
++        return [], None
++    flat, cpu = [], []
++    for chip, items in (psutil.sensors_temperatures() or {}).items():
++        for t in items:
++            if t.current is None:
++                continue
++            flat.append({"chip": chip, "label": t.label or chip, "current": t.current})
++            if chip in CPU_CHIPS:
++                cpu.append(t.current)
++    pool = cpu or [t["current"] for t in flat]
++    return flat, (max(pool) if pool else None)
++
++def gpus():
++    if not shutil.which("nvidia-smi"):
++        return []
++    try:
++        out = subprocess.run(["nvidia-smi", "--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu",
++                              "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=3).stdout
++        res = []
++        for line in out.strip().splitlines():
++            n, u, mu, mt, t = [x.strip() for x in line.split(",")]
++            res.append({"name": n, "util": float(u), "mem_used": float(mu) * 2**20,
++                        "mem_total": float(mt) * 2**20, "temp": float(t)})
++        return res
++    except Exception:
++        return []
++
++def net():
++    rx = tx = 0
++    for nic, c in psutil.net_io_counters(pernic=True).items():
++        if nic == "lo" or nic.startswith(("veth", "docker", "br-")):
++            continue
++        rx += c.bytes_recv; tx += c.bytes_sent
++    return {"rx": rx, "tx": tx}
++
++@app.get("/health")
++def health():
++    return {"ok": True}
++
++@app.get("/metrics")
++def metrics():
++    auth = request.headers.get("Authorization", "")
++    if not auth.startswith("Bearer ") or not hmac.compare_digest(auth[7:].encode(), TOKEN):
++        abort(403)
++    vm, sw = psutil.virtual_memory(), psutil.swap_memory()
++    used = vm.total - vm.available
++    freq = psutil.cpu_freq()
++    tlist, tmax = temps()
++    return jsonify({
++        "ts": time.time(), "hostname": platform.node(), "os": os_name(),
++        "uptime": time.time() - psutil.boot_time(),
++        "cpu": {"model": cpu_model(), "cores": psutil.cpu_count(logical=False) or psutil.cpu_count(),
++                "threads": psutil.cpu_count(), "percent": _cpu["total"], "per_core": _cpu["per"],
++                "freq_mhz": freq.current if freq else None, "load": list(os.getloadavg())},
++        "mem": {"total": vm.total, "used": used, "percent": used / vm.total * 100,
++                "swap_total": sw.total, "swap_used": sw.used},
++        "disks": disks(), "temps": tlist, "temp_max": tmax, "net": net(), "gpus": gpus(),
++    })
+diff --git a/agent/install.sh b/agent/install.sh
+new file mode 100755
+index 0000000..a40cdbb
+--- /dev/null
++++ b/agent/install.sh
+@@ -0,0 +1,24 @@
++#!/usr/bin/env bash
++# Uruchom jako root z katalogu agent/:  sudo ./install.sh
++set -euo pipefail
++[ "$EUID" -eq 0 ] || { echo "Uruchom przez sudo"; exit 1; }
++D=/opt/panel-agent
++id panel-agent &>/dev/null || useradd --system --home "$D" --shell /usr/sbin/nologin panel-agent
++mkdir -p "$D" && cp agent.py requirements.txt "$D/"
++apt-get install -y python3-venv >/dev/null
++python3 -m venv "$D/venv" && "$D/venv/bin/pip" install -q -r "$D/requirements.txt"
++if [ ! -f "$D/agent.env" ]; then
++  TOKEN=$(python3 -c "import secrets;print(secrets.token_hex(24))")
++  cat > "$D/agent.env" <<ENV
++AGENT_TOKEN=$TOKEN
++AGENT_BIND=0.0.0.0
++AGENT_PORT=8765
++# HTTPS (opcjonalnie), odkomentuj po wygenerowaniu certyfikatu:
++# GUNICORN_CMD_ARGS=--certfile=/opt/panel-agent/cert.pem --keyfile=/opt/panel-agent/key.pem
++ENV
++  chmod 600 "$D/agent.env"
++  echo ">>> TOKEN agenta (wklej do .env panelu): $TOKEN"
++fi
++cp panel-agent.service /etc/systemd/system/
++systemctl daemon-reload && systemctl enable --now panel-agent
++systemctl --no-pager status panel-agent | head -5
+diff --git a/agent/panel-agent.service b/agent/panel-agent.service
+new file mode 100644
+index 0000000..2fa54c9
+--- /dev/null
++++ b/agent/panel-agent.service
+@@ -0,0 +1,17 @@
++[Unit]
++Description=Panel agent (metryki)
++After=network-online.target
++Wants=network-online.target
++
++[Service]
++User=panel-agent
++WorkingDirectory=/opt/panel-agent
++EnvironmentFile=/opt/panel-agent/agent.env
++ExecStart=/opt/panel-agent/venv/bin/gunicorn -w 1 --threads 4 -b ${AGENT_BIND}:${AGENT_PORT} agent:app
++Restart=always
++NoNewPrivileges=true
++ProtectHome=true
++PrivateTmp=true
++
++[Install]
++WantedBy=multi-user.target
+diff --git a/agent/requirements.txt b/agent/requirements.txt
+new file mode 100644
+index 0000000..97fc9d9
+--- /dev/null
++++ b/agent/requirements.txt
+@@ -0,0 +1,3 @@
++Flask==3.0.3
++psutil==6.0.0
++gunicorn==22.0.0
+diff --git a/app/agents.py b/app/agents.py
+new file mode 100644
+index 0000000..006f4d0
+--- /dev/null
++++ b/app/agents.py
+@@ -0,0 +1,20 @@
++import os
++import requests
++
++def _load():
++    out = {}
++    for k in filter(None, (x.strip().lower() for x in os.getenv("AGENT_KEYS", "").split(","))):
++        K = k.upper()
++        out[k] = {"key": k, "name": os.getenv(f"AGENT_{K}_NAME", k),
++                  "url": os.environ[f"AGENT_{K}_URL"].rstrip("/"),
++                  "token": os.environ[f"AGENT_{K}_TOKEN"],
++                  "verify": os.getenv(f"AGENT_{K}_VERIFY", "1") == "1"}
++    return out
++
++AGENTS = _load()
++
++def fetch(a):
++    r = requests.get(a["url"] + "/metrics", timeout=3, verify=a["verify"],
++                     headers={"Authorization": "Bearer " + a["token"]})
++    r.raise_for_status()
++    return r.json()
+diff --git a/app/models.py b/app/models.py
+index febfa34..fc5f10e 100644
+--- a/app/models.py
++++ b/app/models.py
+@@ -42,3 +42,37 @@ class AuditLog(db.Model):
+     user = db.Column(db.String(64))
+     ip = db.Column(db.String(64))
+     action = db.Column(db.String(255), nullable=False)
++
++from sqlalchemy.dialects.postgresql import JSONB
++
++class AgentState(db.Model):                               # ostatni znany stan agenta
++    __tablename__ = "agent_state"
++    server = db.Column(db.String(32), primary_key=True)
++    checked = db.Column(db.DateTime(timezone=True))
++    last_ok = db.Column(db.DateTime(timezone=True))
++    ok = db.Column(db.Boolean, default=False)
++    error = db.Column(db.String(120))
++    data = db.Column(JSONB)
++
++class MetricSample(db.Model):
++    __tablename__ = "metric_samples"
++    id = db.Column(db.BigInteger, primary_key=True)
++    server = db.Column(db.String(32), nullable=False)
++    ts = db.Column(db.DateTime(timezone=True), default=now, nullable=False)
++    cpu = db.Column(db.Float)
++    ram_used = db.Column(db.BigInteger)
++    ram_total = db.Column(db.BigInteger)
++    temp = db.Column(db.Float)
++    rx_bps = db.Column(db.Float)
++    tx_bps = db.Column(db.Float)
++    __table_args__ = (db.Index("ix_ms_server_ts", "server", "ts"),)
++
++class MetricAgg(db.Model):                                # średnie minutowe
++    __tablename__ = "metric_agg"
++    server = db.Column(db.String(32), primary_key=True)
++    bucket = db.Column(db.DateTime(timezone=True), primary_key=True)
++    cpu_avg = db.Column(db.Float)
++    cpu_max = db.Column(db.Float)
++    ram_pct = db.Column(db.Float)
++    temp_max = db.Column(db.Float)
++    n = db.Column(db.Integer, nullable=False)
+diff --git a/app/routes.py b/app/routes.py
+index c3328f4..8cb1257 100644
+--- a/app/routes.py
++++ b/app/routes.py
+@@ -7,9 +7,11 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
+ from flask_login import login_user, logout_user, login_required, current_user
+ from sqlalchemy import text
+ from .extensions import db, limiter
+-from .models import User, AuditLog, PingSample, StatusEvent, now
++from .models import User, AuditLog, PingSample, StatusEvent, AgentState, now
+ from markupsafe import escape
+-from . import actions
++from . import actions, agents
++from zoneinfo import ZoneInfo
++from flask import abort
+ 
+ bp = Blueprint("main", __name__)
+ ph = PasswordHasher()
+@@ -49,7 +51,7 @@ def logout():
+ @bp.route("/")
+ @login_required
+ def dashboard():
+-    return render_template("dashboard.html")
++    return render_template("dashboard.html", agents=list(agents.AGENTS.values()))
+ 
+ @bp.route("/partials/status")
+ @login_required
+@@ -132,3 +134,54 @@ def act_shutdown():
+     db.session.add(StatusEvent(state="SHUTTING_DOWN")); db.session.commit()
+     audit("shutdown")
+     return _result("Wysłano polecenie wyłączenia.", True)
++
++TZ = ZoneInfo(os.getenv("PANEL_TZ", "UTC"))
++
++@bp.app_template_filter("gb")
++def _gb(v):
++    return f"{(v or 0) / 1024**3:.1f}"
++
++@bp.app_template_filter("rate")
++def _rate(v):
++    v = v or 0
++    for u in ("B/s", "KB/s", "MB/s", "GB/s"):
++        if v < 1024:
++            return f"{v:.0f} {u}" if u == "B/s" else f"{v:.1f} {u}"
++        v /= 1024
++    return f"{v:.1f} TB/s"
++
++@bp.app_template_filter("uptime")
++def _uptime(sec):
++    d, r = divmod(int(sec or 0), 86400); h, r = divmod(r, 3600)
++    return f"{d}d {h}h {r // 60}m" if d else f"{h}h {r // 60}m"
++
++@bp.app_template_filter("local")
++def _local(dt):
++    return dt.astimezone(TZ).strftime("%d.%m %H:%M:%S") if dt else "—"
++
++@bp.route("/partials/server/<key>")
++@login_required
++def server_card(key):
++    a = agents.AGENTS.get(key) or abort(404)
++    return render_template("_server.html", a=a, st=db.session.get(AgentState, key))
++
++M_RAW = """SELECT to_timestamp(floor(extract(epoch from ts)/:s)*:s) t, avg(cpu) cpu,
++  avg(100.0*ram_used/NULLIF(ram_total,0)) ram, max(temp) temp
++  FROM metric_samples WHERE server=:srv AND ts > :since GROUP BY 1 ORDER BY 1"""
++M_AGG = """SELECT to_timestamp(floor(extract(epoch from bucket)/:s)*:s) t,
++  sum(cpu_avg*n)/sum(n) cpu, sum(ram_pct*n)/sum(n) ram, max(temp_max) temp
++  FROM metric_agg WHERE server=:srv AND bucket > :since GROUP BY 1 ORDER BY 1"""
++
++@bp.route("/api/metrics")
++@login_required
++def api_metrics():
++    srv = request.args.get("server", "")
++    if srv not in agents.AGENTS:
++        abort(404)
++    hours = RANGES.get(request.args.get("range", "1h"), 1)
++    raw = hours <= 24
++    step = max(int(hours * 3600 / 300), 10 if raw else 60)
++    rows = db.session.execute(text(M_RAW if raw else M_AGG),
++        {"s": step, "srv": srv, "since": now() - timedelta(hours=hours)}).all()
++    r1 = lambda v: round(float(v), 1) if v is not None else None
++    return jsonify([{"t": r.t.isoformat(), "cpu": r1(r.cpu), "ram": r1(r.ram), "temp": r1(r.temp)} for r in rows])
+diff --git a/app/static/style.css b/app/static/style.css
+index c225779..1fd6534 100644
+--- a/app/static/style.css
++++ b/app/static/style.css
+@@ -9,3 +9,6 @@ button:disabled{opacity:.4;cursor:default}button.ghost{background:#262a33}.row{d
+ .pill{display:inline-block;padding:.2rem .7rem;border-radius:99px;font-weight:700}
+ .ok{background:var(--ok)}.bad{background:var(--bad)}.warn{background:var(--warn)}.muted{color:var(--mut)}.err{color:var(--bad)}
+ button.danger{background:var(--bad)}.ok-t{color:var(--ok)}
++.bar{height:8px;background:#262a33;border-radius:4px;overflow:hidden;margin:.2rem 0 .6rem}
++.bar i{display:block;height:100%;background:#3b82f6}.bar i.hot{background:var(--bad)}
++.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:.2rem 1.5rem;margin-top:.5rem}
+diff --git a/app/templates/_server.html b/app/templates/_server.html
+new file mode 100644
+index 0000000..dc6c0a9
+--- /dev/null
++++ b/app/templates/_server.html
+@@ -0,0 +1,26 @@
++{% macro bar(p) %}<div class="bar"><i class="{{ 'hot' if p >= 90 }}" style="width:{{ [p, 100]|min }}%"></i></div>{% endmacro %}
++{% set d = st.data if st and st.data else None %}
++<div class="row"><h3 style="margin:0">{{ a.name }}</h3>
++  {% if not st %}<span class="pill warn">brak danych</span>
++  {% elif st.ok %}<span class="pill ok">agent OK</span>
++  {% else %}<span class="pill bad">agent nie odpowiada</span>{% endif %}</div>
++{% if d %}
++  {% if not st.ok %}<p class="muted">Ostatnie znane dane z {{ st.last_ok|local }} ({{ st.error }})</p>{% endif %}
++  <p class="muted">{{ d.hostname }} · {{ d.os }} · uptime {{ d.uptime|uptime }}<br>
++    {{ d.cpu.model }} · {{ d.cpu.cores }} rdz. / {{ d.cpu.threads }} wątków{% if d.cpu.freq_mhz %} · {{ '%.0f'|format(d.cpu.freq_mhz) }} MHz{% endif %}</p>
++  <div class="grid">
++    <div><b>CPU</b> {{ '%.0f'|format(d.cpu.percent) }}% <span class="muted">load {{ d.cpu.load|map('round', 2)|join(' / ') }}</span>{{ bar(d.cpu.percent) }}</div>
++    <div><b>RAM</b> {{ d.mem.used|gb }} / {{ d.mem.total|gb }} GB ({{ '%.0f'|format(d.mem.percent) }}%)
++      {% if d.mem.swap_total %}<span class="muted">swap {{ d.mem.swap_used|gb }} / {{ d.mem.swap_total|gb }} GB</span>{% endif %}{{ bar(d.mem.percent) }}</div>
++    {% for k in d.disks %}
++    <div><b>{{ k.mount }}</b> {{ k.used|gb }} / {{ k.total|gb }} GB ({{ '%.0f'|format(k.percent) }}%) <span class="muted">{{ k.fstype }}</span>{{ bar(k.percent) }}</div>
++    {% endfor %}
++    {% for g in d.gpus %}
++    <div><b>GPU</b> {{ g.name }} {{ '%.0f'|format(g.util) }}% · VRAM {{ g.mem_used|gb }} / {{ g.mem_total|gb }} GB · {{ '%.0f'|format(g.temp) }}°C{{ bar(g.util) }}</div>
++    {% endfor %}
++    {% if d.temp_max is not none %}
++    <div><b>Temp.</b> {{ '%.0f'|format(d.temp_max) }}°C <span class="muted">{% for t in d.temps[:4] %}{{ t.label }} {{ '%.0f'|format(t.current) }}° {% endfor %}</span></div>
++    {% endif %}
++    <div><b>Sieć</b> ↓ {{ (d.rates or {}).rx|rate }} · ↑ {{ (d.rates or {}).tx|rate }}</div>
++  </div>
++{% endif %}
+diff --git a/app/templates/_status.html b/app/templates/_status.html
+index d5c73ce..9689d20 100644
+--- a/app/templates/_status.html
++++ b/app/templates/_status.html
+@@ -5,5 +5,5 @@
+   <div class="pill {{ 'ok' if st == 'ONLINE' else ('bad' if st == 'OFFLINE' else 'warn') }}">{{ {'ONLINE':'ONLINE','OFFLINE':'OFFLINE','BOOTING':'URUCHAMIANIE…','SHUTTING_DOWN':'WYŁĄCZANIE…'}.get(st, '—') }}</div>
+   <p>{{ host }} &middot; ICMP: {{ ('%.1f ms' % last.rtt_ms) if last.ok else 'brak' }}
+      &middot; TCP: {{ ('%.1f ms' % last.tcp_ms) if last.tcp_ok else 'brak' }}</p>
+-  {% if ev %}<p class="muted">od {{ ev.ts.astimezone().strftime('%d.%m %H:%M:%S') }}</p>{% endif %}
++  {% if ev %}<p class="muted">od {{ ev.ts|local }}</p>{% endif %}
+ {% endif %}
+diff --git a/app/templates/dashboard.html b/app/templates/dashboard.html
+index 85a0732..236bcbc 100644
+--- a/app/templates/dashboard.html
++++ b/app/templates/dashboard.html
+@@ -16,6 +16,17 @@
+     {% for r in ['1h','6h','24h','7d','30d'] %}<button class="ghost rng" data-r="{{ r }}">{{ r }}</button>{% endfor %}</div>
+   <canvas id="chart" height="110"></canvas>
+ </section>
++{% for a in agents %}
++<section class="card" hx-get="{{ url_for('main.server_card', key=a.key) }}" hx-trigger="load, every 10s [document.visibilityState=='visible']">…</section>
++{% endfor %}
++{% if agents %}
++<section class="card">
++  <div class="row"><h3>Zasoby</h3>
++    {% for a in agents %}<button class="ghost srv" data-s="{{ a.key }}">{{ a.name }}</button>{% endfor %}
++    {% for r in ['1h','6h','24h','7d','30d'] %}<button class="ghost rrng" data-r="{{ r }}">{{ r }}</button>{% endfor %}</div>
++  <canvas id="rchart" height="110"></canvas>
++</section>
++{% endif %}
+ <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+ <script>
+ let chart, range = '1h';
+@@ -36,4 +47,21 @@ async function load() {
+ }
+ document.querySelectorAll('.rng').forEach(b => b.onclick = () => { range = b.dataset.r; load(); });
+ load(); setInterval(() => document.visibilityState === 'visible' && load(), 15000);
+-</script>{% endblock %}
++</script>{% if agents %}<script>
++let rchart, rrange = '1h', rsrv = '{{ agents[0].key }}';
++async function loadRes() {
++  const d = await (await fetch(`/api/metrics?server=${rsrv}&range=${rrange}`)).json();
++  const line = (label, key, c) => ({label, data: d.map(x => x[key]), borderColor: c, pointRadius: 0, tension: .2});
++  const data = {labels: d.map(x => new Date(x.t)),
++    datasets: [line('CPU %', 'cpu', '#60a5fa'), line('RAM %', 'ram', '#c084fc'), line('Temp °C', 'temp', '#fb923c')]};
++  if (rchart) { rchart.data = data; rchart.update('none'); return; }
++  rchart = new Chart(document.getElementById('rchart'), {type: 'line', data, options: {
++    animation: false, interaction: {mode: 'index', intersect: false},
++    scales: {y: {beginAtZero: true, suggestedMax: 100}, x: {ticks: {maxTicksLimit: 8, callback(v) {
++      return this.getLabelForValue(v).toLocaleString('pl', rrange.endsWith('d') ? {day:'2-digit',month:'2-digit',hour:'2-digit'} : {hour:'2-digit',minute:'2-digit'}); }}}}}});
++}
++document.querySelectorAll('.srv').forEach(b => b.onclick = () => { rsrv = b.dataset.s; loadRes(); });
++document.querySelectorAll('.rrng').forEach(b => b.onclick = () => { rrange = b.dataset.r; loadRes(); });
++loadRes(); setInterval(() => document.visibilityState === 'visible' && loadRes(), 15000);
++</script>{% endif %}
++{% endblock %}
+diff --git a/app/worker.py b/app/worker.py
+index 92762ca..d2b0b76 100644
+--- a/app/worker.py
++++ b/app/worker.py
+@@ -3,15 +3,16 @@ from datetime import timedelta
+ from apscheduler.schedulers.blocking import BlockingScheduler
+ from icmplib import ping
+ from sqlalchemy import text
+-from . import create_app
++from . import create_app, agents
+ from .extensions import db
+-from .models import PingSample, StatusEvent, now
++from .models import PingSample, StatusEvent, AgentState, MetricSample, now
+ 
+ log = logging.getLogger("worker"); logging.basicConfig(level=logging.INFO)
+ HOST = os.environ["MAIN_HOST"]
+ TCP_PORT = int(os.getenv("MAIN_TCP_PORT", 22))
+ INTERVAL = int(os.getenv("PING_INTERVAL", 10))
+ THRESHOLD = int(os.getenv("FAIL_THRESHOLD", 3))
++METRICS_INTERVAL = int(os.getenv("METRICS_INTERVAL", 15))
+ RAW_DAYS = max(int(os.getenv("RETENTION_DAYS_RAW", 2)), 1)
+ AGG_DAYS = int(os.getenv("RETENTION_DAYS_AGG", 30))
+ 
+@@ -58,6 +59,35 @@ def tick():
+     except Exception:
+         log.exception("tick failed")
+ 
++def collect():
++    for a in agents.AGENTS.values():
++        data, err = None, None
++        try:
++            data = agents.fetch(a)
++        except Exception as e:
++            err = type(e).__name__
++        try:
++            with app.app_context():
++                st = db.session.get(AgentState, a["key"]) or AgentState(server=a["key"])
++                st.checked = now()
++                if data:
++                    prev, rx, tx = st.data or {}, 0.0, 0.0
++                    dt = data["ts"] - prev.get("ts", 0) if prev.get("net") else 0
++                    if dt > 0:
++                        rx = max(data["net"]["rx"] - prev["net"]["rx"], 0) / dt
++                        tx = max(data["net"]["tx"] - prev["net"]["tx"], 0) / dt
++                    data["rates"] = {"rx": rx, "tx": tx}
++                    st.data, st.ok, st.error, st.last_ok = data, True, None, now()
++                    db.session.add(MetricSample(server=a["key"], cpu=data["cpu"]["percent"],
++                        ram_used=data["mem"]["used"], ram_total=data["mem"]["total"],
++                        temp=data["temp_max"], rx_bps=rx, tx_bps=tx))
++                else:
++                    st.ok, st.error = False, err
++                db.session.add(st)
++                db.session.commit()
++        except Exception:
++            log.exception("collect failed (%s)", a["key"])
++
+ def maintenance():
+     try:
+         with app.app_context():
+@@ -74,6 +104,20 @@ def maintenance():
+                                {"c": now() - timedelta(days=RAW_DAYS)})
+             db.session.execute(text("DELETE FROM ping_agg WHERE bucket < :c"),
+                                {"c": now() - timedelta(days=AGG_DAYS)})
++            db.session.execute(text("""
++              INSERT INTO metric_agg(server, bucket, cpu_avg, cpu_max, ram_pct, temp_max, n)
++              SELECT server, date_trunc('minute', ts), avg(cpu), max(cpu),
++                     avg(100.0*ram_used/NULLIF(ram_total,0)), max(temp), count(*)
++              FROM metric_samples
++              WHERE ts >= :since AND ts < date_trunc('minute', now()) GROUP BY 1, 2
++              ON CONFLICT (server, bucket) DO UPDATE SET cpu_avg=EXCLUDED.cpu_avg,
++                cpu_max=EXCLUDED.cpu_max, ram_pct=EXCLUDED.ram_pct,
++                temp_max=EXCLUDED.temp_max, n=EXCLUDED.n"""),
++                {"since": now() - timedelta(hours=2)})
++            db.session.execute(text("DELETE FROM metric_samples WHERE ts < :c"),
++                               {"c": now() - timedelta(days=RAW_DAYS)})
++            db.session.execute(text("DELETE FROM metric_agg WHERE bucket < :c"),
++                               {"c": now() - timedelta(days=AGG_DAYS)})
+             db.session.commit()
+     except Exception:
+         log.exception("maintenance failed")
+@@ -82,5 +126,6 @@ if __name__ == "__main__":
+     time.sleep(8)  # poczekaj aż web utworzy tabele
+     s = BlockingScheduler(timezone="UTC")
+     s.add_job(tick, "interval", seconds=INTERVAL, max_instances=1, coalesce=True)
++    s.add_job(collect, "interval", seconds=METRICS_INTERVAL, max_instances=1, coalesce=True)
+     s.add_job(maintenance, "interval", minutes=10, max_instances=1)
+     s.start()
+diff --git a/docker-compose.yml b/docker-compose.yml
+index 1f88fb0..2e24d63 100644
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -34,6 +34,7 @@ services:
+       DATABASE_URL: postgresql+psycopg://panel:${DB_PASSWORD}@db/panel
+     sysctls:
+       net.ipv4.ping_group_range: "0 2147483647"   # ICMP bez root/NET_RAW
++    extra_hosts: ["host.docker.internal:host-gateway"]   # agent lokalny
+     depends_on: [web]
+     command: python -m app.worker
+ 
+diff --git a/requirements.txt b/requirements.txt
+index 9a859a1..a886478 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -12,3 +12,5 @@ pyotp==2.9.0
+ qrcode==7.4.2
+ icmplib==3.0.4
+ paramiko==3.4.0
++requests==2.32.3
++tzdata==2024.1

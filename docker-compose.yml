@@ -34,6 +34,7 @@ services:
       DATABASE_URL: postgresql+psycopg://panel:${DB_PASSWORD}@db/panel
     sysctls:
       net.ipv4.ping_group_range: "0 2147483647"   # ICMP bez root/NET_RAW
+    extra_hosts: ["host.docker.internal:host-gateway"]   # agent lokalny
     depends_on: [web]
     command: python -m app.worker
 

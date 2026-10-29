@@ -1,0 +1,17 @@
+[Unit]
+Description=Panel agent (metryki)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=panel-agent
+WorkingDirectory=/opt/panel-agent
+EnvironmentFile=/opt/panel-agent/agent.env
+ExecStart=/opt/panel-agent/venv/bin/gunicorn -w 1 --threads 4 -b ${AGENT_BIND}:${AGENT_PORT} agent:app
+Restart=always
+NoNewPrivileges=true
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

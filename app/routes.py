@@ -7,9 +7,11 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from flask_login import login_user, logout_user, login_required, current_user
 from sqlalchemy import text
 from .extensions import db, limiter
-from .models import User, AuditLog, PingSample, StatusEvent, now
+from .models import User, AuditLog, PingSample, StatusEvent, AgentState, now
 from markupsafe import escape
-from . import actions
+from . import actions, agents
+from zoneinfo import ZoneInfo
+from flask import abort
 
 bp = Blueprint("main", __name__)
 ph = PasswordHasher()
@@ -49,7 +51,7 @@ def logout():
 @bp.route("/")
 @login_required
 def dashboard():
-    return render_template("dashboard.html")
+    return render_template("dashboard.html", agents=list(agents.AGENTS.values()))
 
 @bp.route("/partials/status")
 @login_required
@@ -132,3 +134,54 @@ def act_shutdown():
     db.session.add(StatusEvent(state="SHUTTING_DOWN")); db.session.commit()
     audit("shutdown")
     return _result("Wysłano polecenie wyłączenia.", True)
+
+TZ = ZoneInfo(os.getenv("PANEL_TZ", "UTC"))
+
+@bp.app_template_filter("gb")
+def _gb(v):
+    return f"{(v or 0) / 1024**3:.1f}"
+
+@bp.app_template_filter("rate")
+def _rate(v):
+    v = v or 0
+    for u in ("B/s", "KB/s", "MB/s", "GB/s"):
+        if v < 1024:
+            return f"{v:.0f} {u}" if u == "B/s" else f"{v:.1f} {u}"
+        v /= 1024
+    return f"{v:.1f} TB/s"
+
+@bp.app_template_filter("uptime")
+def _uptime(sec):
+    d, r = divmod(int(sec or 0), 86400); h, r = divmod(r, 3600)
+    return f"{d}d {h}h {r // 60}m" if d else f"{h}h {r // 60}m"
+
+@bp.app_template_filter("local")
+def _local(dt):
+    return dt.astimezone(TZ).strftime("%d.%m %H:%M:%S") if dt else "—"
+
+@bp.route("/partials/server/<key>")
+@login_required
+def server_card(key):
+    a = agents.AGENTS.get(key) or abort(404)
+    return render_template("_server.html", a=a, st=db.session.get(AgentState, key))
+
+M_RAW = """SELECT to_timestamp(floor(extract(epoch from ts)/:s)*:s) t, avg(cpu) cpu,
+  avg(100.0*ram_used/NULLIF(ram_total,0)) ram, max(temp) temp
+  FROM metric_samples WHERE server=:srv AND ts > :since GROUP BY 1 ORDER BY 1"""
+M_AGG = """SELECT to_timestamp(floor(extract(epoch from bucket)/:s)*:s) t,
+  sum(cpu_avg*n)/sum(n) cpu, sum(ram_pct*n)/sum(n) ram, max(temp_max) temp
+  FROM metric_agg WHERE server=:srv AND bucket > :since GROUP BY 1 ORDER BY 1"""
+
+@bp.route("/api/metrics")
+@login_required
+def api_metrics():
+    srv = request.args.get("server", "")
+    if srv not in agents.AGENTS:
+        abort(404)
+    hours = RANGES.get(request.args.get("range", "1h"), 1)
+    raw = hours <= 24
+    step = max(int(hours * 3600 / 300), 10 if raw else 60)
+    rows = db.session.execute(text(M_RAW if raw else M_AGG),
+        {"s": step, "srv": srv, "since": now() - timedelta(hours=hours)}).all()
+    r1 = lambda v: round(float(v), 1) if v is not None else None
+    return jsonify([{"t": r.t.isoformat(), "cpu": r1(r.cpu), "ram": r1(r.ram), "temp": r1(r.temp)} for r in rows])

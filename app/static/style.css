@@ -9,3 +9,6 @@ button:disabled{opacity:.4;cursor:default}button.ghost{background:#262a33}.row{d
 .pill{display:inline-block;padding:.2rem .7rem;border-radius:99px;font-weight:700}
 .ok{background:var(--ok)}.bad{background:var(--bad)}.warn{background:var(--warn)}.muted{color:var(--mut)}.err{color:var(--bad)}
 button.danger{background:var(--bad)}.ok-t{color:var(--ok)}
+.bar{height:8px;background:#262a33;border-radius:4px;overflow:hidden;margin:.2rem 0 .6rem}
+.bar i{display:block;height:100%;background:#3b82f6}.bar i.hot{background:var(--bad)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:.2rem 1.5rem;margin-top:.5rem}

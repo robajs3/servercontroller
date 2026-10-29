@@ -42,3 +42,37 @@ class AuditLog(db.Model):
     user = db.Column(db.String(64))
     ip = db.Column(db.String(64))
     action = db.Column(db.String(255), nullable=False)
+
+from sqlalchemy.dialects.postgresql import JSONB
+
+class AgentState(db.Model):                               # ostatni znany stan agenta
+    __tablename__ = "agent_state"
+    server = db.Column(db.String(32), primary_key=True)
+    checked = db.Column(db.DateTime(timezone=True))
+    last_ok = db.Column(db.DateTime(timezone=True))
+    ok = db.Column(db.Boolean, default=False)
+    error = db.Column(db.String(120))
+    data = db.Column(JSONB)
+
+class MetricSample(db.Model):
+    __tablename__ = "metric_samples"
+    id = db.Column(db.BigInteger, primary_key=True)
+    server = db.Column(db.String(32), nullable=False)
+    ts = db.Column(db.DateTime(timezone=True), default=now, nullable=False)
+    cpu = db.Column(db.Float)
+    ram_used = db.Column(db.BigInteger)
+    ram_total = db.Column(db.BigInteger)
+    temp = db.Column(db.Float)
+    rx_bps = db.Column(db.Float)
+    tx_bps = db.Column(db.Float)
+    __table_args__ = (db.Index("ix_ms_server_ts", "server", "ts"),)
+
+class MetricAgg(db.Model):                                # średnie minutowe
+    __tablename__ = "metric_agg"
+    server = db.Column(db.String(32), primary_key=True)
+    bucket = db.Column(db.DateTime(timezone=True), primary_key=True)
+    cpu_avg = db.Column(db.Float)
+    cpu_max = db.Column(db.Float)
+    ram_pct = db.Column(db.Float)
+    temp_max = db.Column(db.Float)
+    n = db.Column(db.Integer, nullable=False)

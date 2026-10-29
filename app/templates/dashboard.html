@@ -16,6 +16,17 @@
     {% for r in ['1h','6h','24h','7d','30d'] %}<button class="ghost rng" data-r="{{ r }}">{{ r }}</button>{% endfor %}</div>
   <canvas id="chart" height="110"></canvas>
 </section>
+{% for a in agents %}
+<section class="card" hx-get="{{ url_for('main.server_card', key=a.key) }}" hx-trigger="load, every 10s [document.visibilityState=='visible']">…</section>
+{% endfor %}
+{% if agents %}
+<section class="card">
+  <div class="row"><h3>Zasoby</h3>
+    {% for a in agents %}<button class="ghost srv" data-s="{{ a.key }}">{{ a.name }}</button>{% endfor %}
+    {% for r in ['1h','6h','24h','7d','30d'] %}<button class="ghost rrng" data-r="{{ r }}">{{ r }}</button>{% endfor %}</div>
+  <canvas id="rchart" height="110"></canvas>
+</section>
+{% endif %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script>
 let chart, range = '1h';
@@ -36,4 +47,21 @@ async function load() {
 }
 document.querySelectorAll('.rng').forEach(b => b.onclick = () => { range = b.dataset.r; load(); });
 load(); setInterval(() => document.visibilityState === 'visible' && load(), 15000);
-</script>{% endblock %}
+</script>{% if agents %}<script>
+let rchart, rrange = '1h', rsrv = '{{ agents[0].key }}';
+async function loadRes() {
+  const d = await (await fetch(`/api/metrics?server=${rsrv}&range=${rrange}`)).json();
+  const line = (label, key, c) => ({label, data: d.map(x => x[key]), borderColor: c, pointRadius: 0, tension: .2});
+  const data = {labels: d.map(x => new Date(x.t)),
+    datasets: [line('CPU %', 'cpu', '#60a5fa'), line('RAM %', 'ram', '#c084fc'), line('Temp °C', 'temp', '#fb923c')]};
+  if (rchart) { rchart.data = data; rchart.update('none'); return; }
+  rchart = new Chart(document.getElementById('rchart'), {type: 'line', data, options: {
+    animation: false, interaction: {mode: 'index', intersect: false},
+    scales: {y: {beginAtZero: true, suggestedMax: 100}, x: {ticks: {maxTicksLimit: 8, callback(v) {
+      return this.getLabelForValue(v).toLocaleString('pl', rrange.endsWith('d') ? {day:'2-digit',month:'2-digit',hour:'2-digit'} : {hour:'2-digit',minute:'2-digit'}); }}}}}});
+}
+document.querySelectorAll('.srv').forEach(b => b.onclick = () => { rsrv = b.dataset.s; loadRes(); });
+document.querySelectorAll('.rrng').forEach(b => b.onclick = () => { rrange = b.dataset.r; loadRes(); });
+loadRes(); setInterval(() => document.visibilityState === 'visible' && loadRes(), 15000);
+</script>{% endif %}
+{% endblock %}

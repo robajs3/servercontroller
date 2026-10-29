@@ -12,3 +12,5 @@ pyotp==2.9.0
 qrcode==7.4.2
 icmplib==3.0.4
 paramiko==3.4.0
+requests==2.32.3
+tzdata==2024.1

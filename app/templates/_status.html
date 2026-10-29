@@ -5,5 +5,5 @@
   <div class="pill {{ 'ok' if st == 'ONLINE' else ('bad' if st == 'OFFLINE' else 'warn') }}">{{ {'ONLINE':'ONLINE','OFFLINE':'OFFLINE','BOOTING':'URUCHAMIANIE…','SHUTTING_DOWN':'WYŁĄCZANIE…'}.get(st, '—') }}</div>
   <p>{{ host }} &middot; ICMP: {{ ('%.1f ms' % last.rtt_ms) if last.ok else 'brak' }}
      &middot; TCP: {{ ('%.1f ms' % last.tcp_ms) if last.tcp_ok else 'brak' }}</p>
-  {% if ev %}<p class="muted">od {{ ev.ts.astimezone().strftime('%d.%m %H:%M:%S') }}</p>{% endif %}
+  {% if ev %}<p class="muted">od {{ ev.ts|local }}</p>{% endif %}
 {% endif %}
