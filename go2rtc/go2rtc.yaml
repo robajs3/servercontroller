@@ -1,0 +1,6 @@
+# go2rtc: kamera USB -> MJPEG (HTTP). Port 1984 nie jest publikowany na hosta,
+# dostęp tylko przez panel (po zalogowaniu). WebRTC nie działa przez Funnel, więc go nie używamy.
+streams:
+  # video=0 oznacza /dev/video0. Rozdzielczość i fps muszą być obsługiwane przez kamerę
+  # (sprawdź: v4l2-ctl --list-formats-ext -d /dev/video0). Dla większej ostrości: video_size=1280x720.
+  cam: ffmpeg:device?video=0&video_size=640x480&framerate=5#video=mjpeg

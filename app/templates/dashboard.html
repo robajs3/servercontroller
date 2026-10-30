@@ -11,6 +11,16 @@
   </div>
   <div id="act"></div>
 </section>
+{% if camera_enabled %}
+<section class="card">
+  <div class="row"><h3>Kamera</h3><a class="tab" href="{{ url_for('cam.camera_page') }}">Na żywo</a></div>
+  <img id="camsnap" class="cam" alt="Podgląd kamery" src="{{ url_for('cam.snapshot') }}">
+</section>
+<script>
+const cs = document.getElementById('camsnap');
+setInterval(() => { if (document.visibilityState === 'visible') cs.src = '{{ url_for("cam.snapshot") }}?t=' + Date.now(); }, 10000);
+</script>
+{% endif %}
 <section class="card">
   <div class="row"><h3>Ping</h3>
     {% for r in ['1h','6h','24h','7d','30d'] %}<button class="ghost rng" data-r="{{ r }}">{{ r }}</button>{% endfor %}</div>

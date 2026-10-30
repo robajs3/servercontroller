@@ -28,6 +28,8 @@ def create_app():
     app.register_blueprint(bp)
     from .docker_routes import dbp
     app.register_blueprint(dbp)
+    from .camera import cam
+    app.register_blueprint(cam)
 
     @app.after_request
     def headers(r):

@@ -24,7 +24,7 @@ services:
     ports: ["127.0.0.1:8000:8000"]
     extra_hosts: ["host.docker.internal:host-gateway"]
     volumes: ["./secrets:/secrets:ro"]
-    command: sh -c "flask --app app init-db && gunicorn -w 1 --threads 4 -b 0.0.0.0:8000 'app:create_app()'"
+    command: sh -c "flask --app app init-db && gunicorn -w 1 --threads 12 -b 0.0.0.0:8000 'app:create_app()'"
 
   worker:
     build: .
@@ -45,6 +45,13 @@ services:
     env_file: .env
     volumes: ["./wol:/srv:ro"]
     command: python /srv/wol.py
+
+  camera:
+    image: ${GO2RTC_IMAGE:-alexxit/go2rtc:1.9.9}
+    restart: unless-stopped
+    profiles: ["camera"]            # włącz: COMPOSE_PROFILES=camera w .env (wymaga podłączonej kamery)
+    devices: ["${CAMERA_DEVICE:-/dev/video0}:/dev/video0"]
+    volumes: ["./go2rtc/go2rtc.yaml:/config/go2rtc.yaml:ro"]
 
 volumes:
   pgdata:

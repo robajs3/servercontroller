@@ -13,7 +13,8 @@
   <header><nav class="row"><b>Panel</b>
     <a href="{{ url_for('main.dashboard') }}">Serwery</a>
     <a href="{{ url_for('dock.docker_page') }}">Docker</a>
-    <a href="{{ url_for('dock.stacks_page') }}">Stosy</a></nav>
+    <a href="{{ url_for('dock.stacks_page') }}">Stosy</a>{% if camera_enabled %}
+    <a href="{{ url_for('cam.camera_page') }}">Kamera</a>{% endif %}</nav>
     <form method="post" action="{{ url_for('main.logout') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button class="ghost">Wyloguj</button></form></header>
