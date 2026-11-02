@@ -24,7 +24,7 @@ hasło + kod 2FA, blokada konta, CSRF, Content-Security-Policy, dziennik zdarze�
 
 | Imię i nazwisko | GitHub | Zakres |
 |---|---|---|
-| **[uzupełnij: Imię Nazwisko]** | [@robajs3](https://github.com/robajs3) | projekt indywidualny: całość (backend, frontend, infrastruktura) |
+| **[Robert Strzelczyk]** | [@robajs3](https://github.com/robajs3) | projekt indywidualny: całość (backend, frontend, infrastruktura) |
 
 ## Technologie
 
