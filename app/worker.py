@@ -133,8 +133,27 @@ def maintenance():
     except Exception:
         log.exception("maintenance failed")
 
+def wait_for_schema(timeout=180):
+    """Czeka, aż `web` zastosuje migracje (alembic_version == head). Po przekroczeniu czasu kończy
+    proces, a Docker (restart: unless-stopped) uruchomi go ponownie."""
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+    cfg = Config(); cfg.set_main_option("script_location", "migrations")
+    head = ScriptDirectory.from_config(cfg).get_current_head()
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            with app.app_context():
+                if db.session.execute(text("SELECT version_num FROM alembic_version")).scalar() == head:
+                    return
+        except Exception:
+            pass
+        log.info("Czekam na schemat bazy (migracje)…")
+        time.sleep(2)
+    raise SystemExit("Schemat bazy nie jest gotowy (brak migracji do wersji %s)" % head)
+
 if __name__ == "__main__":
-    time.sleep(8)  # poczekaj aż web utworzy tabele
+    wait_for_schema()
     s = BlockingScheduler(timezone="UTC")
     s.add_job(tick, "interval", seconds=INTERVAL, max_instances=1, coalesce=True)
     s.add_job(collect, "interval", seconds=METRICS_INTERVAL, max_instances=1, coalesce=True)

@@ -1,7 +1,7 @@
 {% extends "base.html" %}{% block body %}
 <section class="card">
   <h3>{{ config.MAIN_NAME }}</h3>
-  <div hx-get="{{ url_for('main.status') }}" hx-trigger="load, refresh-status from:body, every 5s [document.visibilityState=='visible']">…</div>
+  <div hx-get="{{ url_for('main.status') }}" hx-trigger="load, refresh-status from:body, tick5 from:body">…</div>
   <div class="row">
     <button hx-post="{{ url_for('main.act_wake') }}" hx-target="#act" hx-confirm="Wysłać Wake-on-LAN?">Włącz (WoL)</button>
     <form class="row" hx-post="{{ url_for('main.act_shutdown') }}" hx-target="#act" hx-confirm="Na pewno wyłączyć serwer?">
@@ -16,7 +16,7 @@
   <div class="row"><h3>Kamera</h3><a class="tab" href="{{ url_for('cam.camera_page') }}">Na żywo</a></div>
   <img id="camsnap" class="cam" alt="Podgląd kamery" src="{{ url_for('cam.snapshot') }}">
 </section>
-<script>
+<script nonce="{{ csp_nonce }}">
 const cs = document.getElementById('camsnap');
 setInterval(() => { if (document.visibilityState === 'visible') cs.src = '{{ url_for("cam.snapshot") }}?t=' + Date.now(); }, 10000);
 </script>
@@ -24,24 +24,27 @@ setInterval(() => { if (document.visibilityState === 'visible') cs.src = '{{ url
 <section class="card">
   <div class="row"><h3>Ping</h3>
     {% for r in ['1h','6h','24h','7d','30d'] %}<button class="ghost rng" data-r="{{ r }}">{{ r }}</button>{% endfor %}</div>
+  <p class="err" id="perr" hidden></p>
   <canvas id="chart" height="110"></canvas>
 </section>
 {% for a in agents %}
-<section class="card" hx-get="{{ url_for('main.server_card', key=a.key) }}" hx-trigger="load, every 10s [document.visibilityState=='visible']">…</section>
+<section class="card" hx-get="{{ url_for('main.server_card', key=a.key) }}" hx-trigger="load, tick10 from:body">…</section>
 {% endfor %}
 {% if agents %}
 <section class="card">
   <div class="row"><h3>Zasoby</h3>
     {% for a in agents %}<button class="ghost srv" data-s="{{ a.key }}">{{ a.name }}</button>{% endfor %}
     {% for r in ['1h','6h','24h','7d','30d'] %}<button class="ghost rrng" data-r="{{ r }}">{{ r }}</button>{% endfor %}</div>
+  <p class="err" id="rerr" hidden></p>
   <canvas id="rchart" height="110"></canvas>
 </section>
 {% endif %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<script>
+<script src="{{ url_for('static', filename='vendor/chart-4.4.1.umd.js') }}"></script>
+<script nonce="{{ csp_nonce }}">
 let chart, range = '1h';
 async function load() {
-  const d = await (await fetch('/api/ping?range=' + range)).json();
+  const d = await guarded('perr', () => api('/api/ping?range=' + range));
+  if (!d) return;
   const labels = d.map(x => new Date(x.t));
   const data = { labels, datasets: [
     {label: 'ping śr. (ms)', data: d.map(x => x.rtt), borderColor: '#4ade80', pointRadius: 0, tension: .2, yAxisID: 'y', spanGaps: false},
@@ -57,10 +60,11 @@ async function load() {
 }
 document.querySelectorAll('.rng').forEach(b => b.onclick = () => { range = b.dataset.r; load(); });
 load(); setInterval(() => document.visibilityState === 'visible' && load(), 15000);
-</script>{% if agents %}<script>
+</script>{% if agents %}<script nonce="{{ csp_nonce }}">
 let rchart, rrange = '1h', rsrv = '{{ agents[0].key }}';
 async function loadRes() {
-  const d = await (await fetch(`/api/metrics?server=${rsrv}&range=${rrange}`)).json();
+  const d = await guarded('rerr', () => api(`/api/metrics?server=${rsrv}&range=${rrange}`));
+  if (!d) return;
   const line = (label, key, c) => ({label, data: d.map(x => x[key]), borderColor: c, pointRadius: 0, tension: .2});
   const data = {labels: d.map(x => new Date(x.t)),
     datasets: [line('CPU %', 'cpu', '#60a5fa'), line('RAM %', 'ram', '#c084fc'), line('Temp °C', 'temp', '#fb923c')]};

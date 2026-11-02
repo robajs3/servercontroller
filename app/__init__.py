@@ -1,10 +1,10 @@
-import os, getpass
+import os, getpass, secrets
 from datetime import timedelta
 import click, pyotp, qrcode
 from argon2 import PasswordHasher
-from flask import Flask
+from flask import Flask, g, jsonify, redirect, request, url_for
 from werkzeug.middleware.proxy_fix import ProxyFix
-from .extensions import db, login_manager, csrf, limiter
+from .extensions import db, login_manager, csrf, limiter, migrate
 from .models import User
 
 def create_app():
@@ -19,9 +19,18 @@ def create_app():
         MAIN_NAME=os.getenv("MAIN_NAME", "Serwer główny"),
     )
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)  # Funnel
-    db.init_app(app); csrf.init_app(app); limiter.init_app(app)
+    db.init_app(app); csrf.init_app(app); limiter.init_app(app); migrate.init_app(app, db)
     login_manager.init_app(app)
     login_manager.login_view = "main.login"
+
+    @login_manager.unauthorized_handler
+    def _unauthorized():
+        # API i żądania htmx dostają 401 (a nie przekierowanie na HTML logowania)
+        if request.path.startswith("/api/") or request.headers.get("HX-Request"):
+            r = jsonify(error="unauthorized"); r.status_code = 401
+            r.headers["HX-Redirect"] = url_for("main.login")
+            return r
+        return redirect(url_for("main.login"))
     login_manager.user_loader(lambda uid: db.session.get(User, int(uid)))
 
     from .routes import bp
@@ -31,16 +40,53 @@ def create_app():
     from .camera import cam
     app.register_blueprint(cam)
 
+    csp_header = "Content-Security-Policy-Report-Only" if os.getenv("CSP_REPORT_ONLY") == "1" else "Content-Security-Policy"
+
+    @app.before_request
+    def _nonce():
+        g.csp_nonce = secrets.token_urlsafe(16)
+
+    @app.context_processor
+    def _csp_ctx():
+        return {"csp_nonce": g.get("csp_nonce", "")}
+
     @app.after_request
     def headers(r):
         r.headers["X-Content-Type-Options"] = "nosniff"
         r.headers["X-Frame-Options"] = "DENY"
         r.headers["Referrer-Policy"] = "same-origin"
+        # skrypty tylko z własnego origin + inline z nonce (bez 'unsafe-inline'/'unsafe-eval');
+        # style inline dopuszczone (atrybuty style w szablonach)
+        r.headers[csp_header] = (
+            f"default-src 'self'; script-src 'self' 'nonce-{g.get('csp_nonce', '')}'; "
+            "style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; "
+            "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
+        if app.config["SESSION_COOKIE_SECURE"]:
+            r.headers["Strict-Transport-Security"] = "max-age=31536000"
         return r
 
     @app.cli.command("init-db")
     def init_db():
-        db.create_all()
+        """Tworzy lub aktualizuje schemat (migracje). Bazę z poprzednich etapów (create_all, bez
+        alembic_version) przejmuje przez stamp bazowej migracji 0001."""
+        from flask_migrate import stamp, upgrade
+        from sqlalchemy import inspect
+        tables = set(inspect(db.engine).get_table_names())
+        if "users" in tables and "alembic_version" not in tables:
+            db.create_all()                 # dopełnia brakujące tabele (np. po pominiętych etapach)
+            stamp(revision="0001")
+        upgrade()
+
+    @app.cli.command("unlock-user")
+    @click.argument("username")
+    def unlock_user(username):
+        """Zdejmuje blokadę logowania z konta."""
+        u = User.query.filter_by(username=username).first()
+        if not u:
+            raise click.ClickException("Nie ma takiego użytkownika")
+        u.failed_count, u.locked_until = 0, None
+        db.session.commit()
+        click.echo("Konto odblokowane.")
 
     @app.cli.command("create-user")
     @click.argument("username")

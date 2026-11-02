@@ -117,7 +117,7 @@ def c_logs(key, cid):
     except Exception as e:
         body = f"Błąd: {type(e).__name__}"
     return _html('<p class="muted">Logi (ostatnie linie) <button class="ghost sm" '
-                 'onclick="this.parentNode.parentNode.innerHTML=\'\'">zamknij</button></p>'
+                 'data-clear="#logbox">zamknij</button></p>'
                  f'<pre class="log">{escape(body)}</pre>')
 
 @dbp.route("/api/docker/timeline")

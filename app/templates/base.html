@@ -4,9 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="csrf-token" content="{{ csrf_token() }}">
+  <meta name="htmx-config" content='{"allowEval": false}'>
   <title>Panel serwerów</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-  <script src="https://cdn.jsdelivr.net/npm/htmx.org@1.9.12/dist/htmx.min.js"></script>
+  <script src="{{ url_for('static', filename='vendor/htmx-1.9.12.min.js') }}"></script>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
 </head>
 <body hx-headers='{"X-CSRFToken": "{{ csrf_token() }}"}'>
   {% if current_user.is_authenticated %}

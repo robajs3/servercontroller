@@ -1,14 +1,14 @@
 import os
 from datetime import timedelta
-import pyotp
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import login_user, logout_user, login_required, current_user
 from sqlalchemy import text
 from .extensions import db, limiter
+from .security import verify_totp_once, is_locked, register_failure, reset_failures, LOCK_MINUTES
 from .models import User, AuditLog, PingSample, StatusEvent, AgentState, now
-from markupsafe import escape
+from markupsafe import Markup, escape
 from . import actions, agents
 from zoneinfo import ZoneInfo
 from flask import abort
@@ -26,20 +26,24 @@ def audit(action):
 @limiter.limit("5/minute;30/hour", methods=["POST"])
 def login():
     if request.method == "POST":
-        u = User.query.filter_by(username=request.form.get("username", "")).first()
-        ok = False
-        try:
+        name = request.form.get("username", "")
+        u = User.query.filter_by(username=name).first()
+        locked = bool(u and is_locked(u))
+        try:                                      # hasło sprawdzamy zawsze (stały czas, także dla nieznanego loginu)
             ph.verify(u.password_hash if u else DUMMY, request.form.get("password", ""))
-            ok = u is not None
+            pw_ok = u is not None
         except VerifyMismatchError:
-            pass
-        code = request.form.get("code", "").strip()
-        if ok and pyotp.TOTP(u.totp_secret).verify(code, valid_window=1):
+            pw_ok = False
+        # kod TOTP zużywamy dopiero po poprawnym haśle i tylko gdy konto nie jest zablokowane
+        if pw_ok and not locked and verify_totp_once(u, request.form.get("code", "")):
+            reset_failures(u)
             login_user(u, remember=False)
             audit("login ok")
             return redirect(url_for("main.dashboard"))
-        audit(f"login FAIL ({request.form.get('username','')[:32]})")
-        flash("Nieprawidłowe dane logowania")
+        newly_locked = bool(u and not locked and register_failure(u))
+        audit(f"login FAIL ({name[:32]})" + (" [konto zablokowane]" if locked else "")
+              + (f" -> blokada {LOCK_MINUTES} min" if newly_locked else ""))
+        flash("Nieprawidłowe dane logowania lub konto jest tymczasowo zablokowane")
     return render_template("login.html")
 
 @bp.post("/logout")
@@ -135,7 +139,7 @@ def act_shutdown():
     audit("shutdown")
     return _result("Wysłano polecenie wyłączenia.", True)
 
-TZ = ZoneInfo(os.getenv("PANEL_TZ", "UTC"))
+TZ = ZoneInfo(os.getenv("PANEL_TZ", "Europe/Warsaw"))
 
 @bp.app_template_filter("gb")
 def _gb(v):
@@ -157,7 +161,11 @@ def _uptime(sec):
 
 @bp.app_template_filter("local")
 def _local(dt):
-    return dt.astimezone(TZ).strftime("%d.%m %H:%M:%S") if dt else "—"
+    """Czas jako <time datetime=ISO>: app.js zamienia go na strefę przeglądarki użytkownika,
+    a tekst w środku (PANEL_TZ) to wersja zapasowa, np. gdy JS jest wyłączony."""
+    if not dt:
+        return "—"
+    return Markup(f'<time class="lt" datetime="{dt.isoformat()}">{dt.astimezone(TZ).strftime("%d.%m %H:%M:%S")}</time>')
 
 @bp.route("/partials/server/<key>")
 @login_required

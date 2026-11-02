@@ -14,6 +14,11 @@ def wake():
     with urllib.request.urlopen(req, timeout=5):
         pass
 
+# Stała akcja: żadna wartość z żądania HTTP nie trafia do polecenia ani do powłoki.
+# Dodatkowo klucz panelu powinien być w authorized_keys głównego serwera z opcją command="...":
+# wtedy serwer SSH wykona wyłącznie to polecenie, cokolwiek wyśle klient (README, sekcja Bezpieczeństwo).
+SHUTDOWN_CMD = "sudo -n /usr/sbin/shutdown -h now"
+
 def shutdown():
     c = paramiko.SSHClient()
     c.load_host_keys(KNOWN_HOSTS)
@@ -22,7 +27,7 @@ def shutdown():
         c.connect(HOST, port=SSH_PORT, username=SSH_USER, key_filename=SSH_KEY,
                   timeout=5, banner_timeout=5, auth_timeout=5,
                   look_for_keys=False, allow_agent=False)
-        _, out, err = c.exec_command("sudo -n /usr/sbin/shutdown -h now", timeout=10)
+        _, out, err = c.exec_command(SHUTDOWN_CMD, timeout=10)
         if out.channel.recv_exit_status() != 0:
             raise RuntimeError(err.read().decode(errors="replace").strip() or "shutdown nie powiódł się")
     finally:

@@ -1,2 +1,12 @@
-secrets/
+# sekrety i lokalna konfiguracja: nigdy do repo
 .env
+secrets/
+*.pem
+*.key
+id_ed25519*
+id_rsa*
+# paczki z poprawkami (git apply / git am), nie są częścią kodu
+*.patch
+# Python
+__pycache__/
+*.pyc

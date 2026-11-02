@@ -3,21 +3,23 @@
 <section class="card">
   <h3>Kontenery</h3>
   <div id="dmsg"></div>
-  <div class="scroll" hx-get="{{ url_for('dock.docker_partial', key=key) }}" hx-trigger="load, refresh-docker from:body, every 10s [document.visibilityState=='visible']">…</div>
+  <div class="scroll" hx-get="{{ url_for('dock.docker_partial', key=key) }}" hx-trigger="load, refresh-docker from:body, tick10 from:body">…</div>
   <div id="logbox"></div>
 </section>
 <section class="card">
   <div class="row"><h3>Oś czasu</h3>{% for r in ['6h','24h','7d','30d'] %}<button class="ghost sm trng" data-r="{{ r }}">{{ r }}</button>{% endfor %}</div>
+  <p class="err" id="tlerr" hidden></p>
   <div id="tl"></div>
   <p class="muted"><span class="dot s-up"></span> działa <span class="dot s-crashed"></span> awaria <span class="dot s-stopped"></span> zatrzymany <span class="dot s-mark"></span> restart / OOM</p>
 </section>
 <section class="card"><h3>Zdarzenia</h3>
-  <div hx-get="{{ url_for('dock.docker_events', key=key) }}" hx-trigger="load, refresh-docker from:body, every 30s [document.visibilityState=='visible']">…</div>
+  <div hx-get="{{ url_for('dock.docker_events', key=key) }}" hx-trigger="load, refresh-docker from:body, tick30 from:body">…</div>
 </section>
-<script>
+<script nonce="{{ csp_nonce }}">
 let trange = '24h';
 async function loadTl() {
-  const d = await (await fetch(`/api/docker/timeline?server={{ key }}&range=${trange}`)).json();
+  const d = await guarded('tlerr', () => api(`/api/docker/timeline?server={{ key }}&range=${trange}`));
+  if (!d) return;
   const a = new Date(d.from).getTime(), span = new Date(d.to).getTime() - a;
   const pct = t => Math.max(0, Math.min(100, (new Date(t).getTime() - a) / span * 100));
   const fmt = t => new Date(t).toLocaleString('pl', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});

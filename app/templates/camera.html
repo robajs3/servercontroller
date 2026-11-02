@@ -7,7 +7,7 @@
   <img id="cam" class="cam" alt="Podgląd kamery" src="{{ url_for('cam.snapshot') }}">
   <p class="muted" id="cst"></p>
 </section>
-<script>
+<script nonce="{{ csp_nonce }}">
 const img = document.getElementById('cam'), st = document.getElementById('cst');
 const SNAP = '{{ url_for("cam.snapshot") }}', STREAM = '{{ url_for("cam.stream") }}', MAX = {{ max_s }};
 let live = false, timer;

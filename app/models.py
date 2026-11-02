@@ -11,6 +11,9 @@ class User(UserMixin, db.Model):
     username = db.Column(db.String(64), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
     totp_secret = db.Column(db.String(64), nullable=False)
+    last_totp_step = db.Column(db.BigInteger)                 # krok czasowy ostatnio użytego kodu TOTP
+    failed_count = db.Column(db.Integer, nullable=False, default=0, server_default="0")
+    locked_until = db.Column(db.DateTime(timezone=True))
 
 class PingSample(db.Model):
     __tablename__ = "ping_samples"
