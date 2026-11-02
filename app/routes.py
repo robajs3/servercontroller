@@ -67,11 +67,12 @@ def status():
                            host=os.getenv("MAIN_HOST"))
 
 RANGES = {"1h": 1, "6h": 6, "24h": 24, "7d": 168, "30d": 720}
-RAW_SQL = """SELECT to_timestamp(floor(extract(epoch from ts)/:s)*:s) t,
+# uwaga: alias kolumny nie może nazywać się `t` (koliduje z Row.t w SQLAlchemy 2.0)
+RAW_SQL = """SELECT to_timestamp(floor(extract(epoch from ts)/:s)*:s) AS bucket,
   avg(rtt_ms) FILTER (WHERE ok) rtt, max(rtt_ms) mx,
   100.0*avg((NOT ok)::int) loss
   FROM ping_samples WHERE ts > :since GROUP BY 1 ORDER BY 1"""
-AGG_SQL = """SELECT to_timestamp(floor(extract(epoch from bucket)/:s)*:s) t,
+AGG_SQL = """SELECT to_timestamp(floor(extract(epoch from bucket)/:s)*:s) AS bucket,
   sum(avg_rtt*n_ok)/NULLIF(sum(n_ok),0) rtt, max(max_rtt) mx,
   100.0*(sum(n)-sum(n_ok))/sum(n) loss
   FROM ping_agg WHERE bucket > :since GROUP BY 1 ORDER BY 1"""
@@ -87,7 +88,7 @@ def api_ping():
         step = max(step, 60)
     rows = db.session.execute(text(RAW_SQL if raw else AGG_SQL),
                               {"s": step, "since": now() - timedelta(hours=hours)}).all()
-    return jsonify([{"t": r.t.isoformat(),
+    return jsonify([{"t": r.bucket.isoformat(),
                      "rtt": round(r.rtt, 2) if r.rtt is not None else None,
                      "max": round(r.mx, 2) if r.mx is not None else None,
                      "loss": round(float(r.loss), 1)} for r in rows])
@@ -173,10 +174,10 @@ def server_card(key):
     a = agents.AGENTS.get(key) or abort(404)
     return render_template("_server.html", a=a, st=db.session.get(AgentState, key))
 
-M_RAW = """SELECT to_timestamp(floor(extract(epoch from ts)/:s)*:s) t, avg(cpu) cpu,
+M_RAW = """SELECT to_timestamp(floor(extract(epoch from ts)/:s)*:s) AS bucket, avg(cpu) cpu,
   avg(100.0*ram_used/NULLIF(ram_total,0)) ram, max(temp) temp
   FROM metric_samples WHERE server=:srv AND ts > :since GROUP BY 1 ORDER BY 1"""
-M_AGG = """SELECT to_timestamp(floor(extract(epoch from bucket)/:s)*:s) t,
+M_AGG = """SELECT to_timestamp(floor(extract(epoch from bucket)/:s)*:s) AS bucket,
   sum(cpu_avg*n)/sum(n) cpu, sum(ram_pct*n)/sum(n) ram, max(temp_max) temp
   FROM metric_agg WHERE server=:srv AND bucket > :since GROUP BY 1 ORDER BY 1"""
 
@@ -192,4 +193,4 @@ def api_metrics():
     rows = db.session.execute(text(M_RAW if raw else M_AGG),
         {"s": step, "srv": srv, "since": now() - timedelta(hours=hours)}).all()
     r1 = lambda v: round(float(v), 1) if v is not None else None
-    return jsonify([{"t": r.t.isoformat(), "cpu": r1(r.cpu), "ram": r1(r.ram), "temp": r1(r.temp)} for r in rows])
+    return jsonify([{"t": r.bucket.isoformat(), "cpu": r1(r.cpu), "ram": r1(r.ram), "temp": r1(r.temp)} for r in rows])
