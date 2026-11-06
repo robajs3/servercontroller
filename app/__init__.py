@@ -39,6 +39,10 @@ def create_app():
     app.register_blueprint(dbp)
     from .camera import cam
     app.register_blueprint(cam)
+    from .pwa import pwa
+    app.register_blueprint(pwa)
+    from .notifications import nbp
+    app.register_blueprint(nbp)
 
     csp_header = "Content-Security-Policy-Report-Only" if os.getenv("CSP_REPORT_ONLY") == "1" else "Content-Security-Policy"
 
@@ -87,6 +91,13 @@ def create_app():
         u.failed_count, u.locked_until = 0, None
         db.session.commit()
         click.echo("Konto odblokowane.")
+
+    @app.cli.command("gen-vapid")
+    def gen_vapid():
+        """Generuje klucze VAPID dla powiadomień push (wklej do .env)."""
+        from .push import generate_keys
+        priv, pub = generate_keys()
+        click.echo(f"VAPID_PRIVATE_KEY={priv}\nVAPID_PUBLIC_KEY={pub}\nVAPID_SUBJECT=mailto:twoj@adres.pl")
 
     @app.cli.command("create-user")
     @click.argument("username")

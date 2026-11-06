@@ -3,7 +3,7 @@ from datetime import timedelta
 from apscheduler.schedulers.blocking import BlockingScheduler
 from icmplib import ping
 from sqlalchemy import text
-from . import create_app, agents, dockerstate
+from . import create_app, agents, dockerstate, alerts
 from .extensions import db
 from .models import PingSample, StatusEvent, AgentState, MetricSample, now
 
@@ -16,6 +16,8 @@ CONTAINER_POLL_INTERVAL = int(os.getenv("CONTAINER_POLL_INTERVAL", 30))
 METRICS_INTERVAL = int(os.getenv("METRICS_INTERVAL", 15))
 RAW_DAYS = max(int(os.getenv("RETENTION_DAYS_RAW", 2)), 1)
 AGG_DAYS = int(os.getenv("RETENTION_DAYS_AGG", 30))
+HEARTBEAT_URL = os.getenv("HEARTBEAT_URL", "").strip()          # np. adres pingu z healthchecks.io
+HEARTBEAT_INTERVAL = int(os.getenv("HEARTBEAT_INTERVAL", 60))
 
 app = create_app()
 fails = 0
@@ -55,7 +57,7 @@ def tick():
             elif fails >= THRESHOLD: new = "OFFLINE"
             if new and new != state:
                 db.session.add(StatusEvent(state=new))
-                log.info("Zmiana stanu: %s -> %s", state, new)  # etap 5: push
+                log.info("Zmiana stanu: %s -> %s", state, new)
             db.session.commit()
     except Exception:
         log.exception("tick failed")
@@ -97,6 +99,28 @@ def collect_docker():
         except Exception:
             log.exception("docker collect failed (%s)", a["key"])
 
+def check_alerts():
+    try:
+        with app.app_context():
+            alerts.evaluate()
+    except Exception:
+        log.exception("alerts failed")
+
+def heartbeat():
+    """Pinguje zewnętrzną usługę (healthchecks.io, Uptime Kuma push itp.), ale tylko gdy panel faktycznie działa:
+    worker żyje, baza odpowiada i pingi serwera głównego są świeże. Gdy cały serwer z panelem padnie, pingi
+    ustają i to usługa zewnętrzna wysyła alert (my nie mamy już jak)."""
+    try:
+        with app.app_context():
+            last = PingSample.query.order_by(PingSample.id.desc()).first()
+            if last is None or (now() - last.ts).total_seconds() > 3 * INTERVAL + 5:
+                log.warning("heartbeat pominięty: brak świeżych próbek pingu")
+                return
+        import requests
+        requests.get(HEARTBEAT_URL, timeout=10).raise_for_status()
+    except Exception as e:
+        log.warning("heartbeat nieudany: %s", type(e).__name__)
+
 def maintenance():
     try:
         with app.app_context():
@@ -129,6 +153,8 @@ def maintenance():
                                {"c": now() - timedelta(days=AGG_DAYS)})
             db.session.execute(text("DELETE FROM container_events WHERE ts < :c"),
                                {"c": now() - timedelta(days=AGG_DAYS)})
+            db.session.execute(text("DELETE FROM alert_events WHERE ts < :c"),
+                               {"c": now() - timedelta(days=AGG_DAYS)})
             db.session.commit()
     except Exception:
         log.exception("maintenance failed")
@@ -158,5 +184,8 @@ if __name__ == "__main__":
     s.add_job(tick, "interval", seconds=INTERVAL, max_instances=1, coalesce=True)
     s.add_job(collect, "interval", seconds=METRICS_INTERVAL, max_instances=1, coalesce=True)
     s.add_job(collect_docker, "interval", seconds=CONTAINER_POLL_INTERVAL, max_instances=1, coalesce=True)
+    s.add_job(check_alerts, "interval", seconds=METRICS_INTERVAL, max_instances=1, coalesce=True)
+    if HEARTBEAT_URL:
+        s.add_job(heartbeat, "interval", seconds=HEARTBEAT_INTERVAL, max_instances=1, coalesce=True)
     s.add_job(maintenance, "interval", minutes=10, max_instances=1)
     s.start()

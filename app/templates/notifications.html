@@ -1,0 +1,66 @@
+{% extends "base.html" %}{% block body %}
+{% for m in get_flashed_messages() %}<p class="card {{ 'err' if 'Nie zapisano' in m else 'ok-t' }}">{{ m }}</p>{% endfor %}
+<section class="card" id="push-ui">
+  <h3>To urządzenie</h3>
+  {% if not configured %}<p class="err">Serwer nie ma skonfigurowanych kluczy VAPID: wygeneruj je komendą
+    <code>docker compose exec web flask --app app gen-vapid</code>, wklej do <code>.env</code> i uruchom ponownie (<code>docker compose up -d</code>).</p>{% endif %}
+  <p id="push-status" class="muted">Sprawdzam…</p>
+  <p id="push-err" class="err" hidden></p>
+  <div class="row">
+    <button id="push-on" hidden>Włącz powiadomienia</button>
+    <button id="push-test" class="ghost" hidden>Wyślij testowe</button>
+    <button id="push-off" class="ghost" hidden>Wyłącz na tym urządzeniu</button>
+  </div>
+</section>
+
+<section class="card">
+  <h3>Aktywne alerty</h3>
+  {% if active %}
+  <table><tr><th>Od</th><th>Alert</th><th></th></tr>
+    {% for a in active %}<tr><td>{{ a.since|local }}</td><td>{{ a.title }}</td><td class="muted">{{ a.detail }}</td></tr>{% endfor %}
+  </table>
+  {% else %}<p class="ok-t">Brak aktywnych alertów.</p>{% endif %}
+</section>
+
+<form class="card" method="post" action="{{ url_for('notif.save_settings') }}">
+  <h3>Alerty i progi</h3>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <p><label><input type="checkbox" name="enabled" value="1" {{ 'checked' if cfg.enabled }} style="width:auto"> Wysyłaj powiadomienia (przełącznik główny)</label></p>
+  <p><label><input type="checkbox" name="main_down" value="1" {{ 'checked' if cfg.main_down }} style="width:auto"> Serwer główny przestał odpowiadać
+    <span class="muted">(wyłączenie przyciskiem w panelu nie jest alertem)</span></label></p>
+  <p><label><input type="checkbox" name="agent_down" value="1" {{ 'checked' if cfg.agent_down }} style="width:auto"> Agent na serwerze nie odpowiada</label></p>
+  <p><label><input type="checkbox" name="containers" value="1" {{ 'checked' if cfg.containers }} style="width:auto"> Kontener padł, restartuje się w pętli lub jest niezdrowy
+    <span class="muted">(zatrzymanie celowe nie jest alertem)</span></label></p>
+  <p><label><input type="checkbox" name="resolved" value="1" {{ 'checked' if cfg.resolved }} style="width:auto"> Powiadom też, gdy problem ustąpi</label></p>
+  <div class="grid">
+    <label>CPU od (%) <input type="number" name="cpu" min="0" max="100" value="{{ cfg.cpu }}"></label>
+    <label>RAM od (%) <input type="number" name="ram" min="0" max="100" value="{{ cfg.ram }}"></label>
+    <label>Dysk od (%) <input type="number" name="disk" min="0" max="100" value="{{ cfg.disk }}"></label>
+    <label>Temperatura od (°C) <input type="number" name="temp" min="0" max="150" value="{{ cfg.temp }}"></label>
+    <label>Utrzymuje się przez (min) <input type="number" name="hold_min" min="1" max="60" value="{{ cfg.hold_min }}"></label>
+  </div>
+  <p class="muted">0 wyłącza dany próg. Alert pojawia się, gdy wartość utrzymuje się powyżej progu przez podany czas, a ustępuje dopiero po spadku o 5 poniżej progu.</p>
+  <button>Zapisz</button>
+</form>
+
+<section class="card">
+  <h3>Urządzenia z powiadomieniami</h3>
+  {% if subs %}
+  <table><tr><th>Urządzenie</th><th>Dodano</th><th>Ostatnia dostawa</th><th></th></tr>
+    {% for s in subs %}<tr><td>{{ s.ua|ua_short }}</td><td>{{ s.created|local }}</td><td>{{ s.last_ok|local }}</td>
+      <td><button class="ghost sm" data-del-sub="{{ s.id }}">Usuń</button></td></tr>{% endfor %}
+  </table>
+  {% else %}<p class="muted">Żadne urządzenie nie ma jeszcze włączonych powiadomień.</p>{% endif %}
+</section>
+
+<section class="card">
+  <h3>Historia alertów</h3>
+  {% if events %}
+  <div class="scroll"><table><tr><th>Czas</th><th></th><th>Alert</th><th>Szczegóły</th></tr>
+    {% for e in events %}<tr><td>{{ e.ts|local }}</td>
+      <td><span class="pill sm {{ 'bad' if e.kind == 'fire' else 'ok' }}">{{ 'wystąpił' if e.kind == 'fire' else 'ustąpił' }}</span></td>
+      <td>{{ e.title }}</td><td class="muted">{{ e.detail }}</td></tr>{% endfor %}
+  </table></div>
+  {% else %}<p class="muted">Brak zdarzeń.</p>{% endif %}
+</section>
+{% endblock %}

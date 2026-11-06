@@ -99,3 +99,42 @@ class ContainerEvent(db.Model):
     exit_code = db.Column(db.Integer)
     detail = db.Column(db.String(200))
     __table_args__ = (db.Index("ix_ce_server_ts", "server", "ts"),)
+
+# --- powiadomienia push i alerty (PWA) ---
+
+class PushSubscription(db.Model):                         # jedno urządzenie/przeglądarka = jedna subskrypcja
+    __tablename__ = "push_subscriptions"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    endpoint = db.Column(db.String(1000), unique=True, nullable=False)
+    p256dh = db.Column(db.String(200), nullable=False)
+    auth = db.Column(db.String(100), nullable=False)
+    ua = db.Column(db.String(200))
+    created = db.Column(db.DateTime(timezone=True), default=now, nullable=False)
+    last_ok = db.Column(db.DateTime(timezone=True))
+
+class AlertState(db.Model):                               # stan pojedynczego alertu (z histerezą i czasem trzymania)
+    __tablename__ = "alert_state"
+    key = db.Column(db.String(200), primary_key=True)     # np. main_down, cpu:local, ctr:local:nginx
+    active = db.Column(db.Boolean, nullable=False, default=False)
+    announced = db.Column(db.Boolean, nullable=False, default=False)   # czy wysłano push o wystąpieniu
+    pending_since = db.Column(db.DateTime(timezone=True))              # od kiedy próg jest przekroczony (jeszcze nie alert)
+    since = db.Column(db.DateTime(timezone=True))                      # od kiedy alert jest aktywny
+    last_notified = db.Column(db.DateTime(timezone=True))
+    title = db.Column(db.String(160))
+    detail = db.Column(db.String(300))
+
+class AlertEvent(db.Model):                               # historia alertów (wystąpił / ustąpił)
+    __tablename__ = "alert_events"
+    id = db.Column(db.BigInteger, primary_key=True)
+    ts = db.Column(db.DateTime(timezone=True), default=now, index=True, nullable=False)
+    key = db.Column(db.String(200), nullable=False)
+    kind = db.Column(db.String(8), nullable=False)        # fire / resolve
+    title = db.Column(db.String(160), nullable=False)
+    detail = db.Column(db.String(300))
+    pushed = db.Column(db.Integer, nullable=False, default=0)   # do ilu urządzeń wysłano
+
+class AlertSettings(db.Model):                            # jeden wiersz (id=1); brakujące pola = wartości domyślne z kodu
+    __tablename__ = "alert_settings"
+    id = db.Column(db.Integer, primary_key=True)
+    data = db.Column(JSONB, nullable=False, default=dict)

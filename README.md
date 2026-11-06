@@ -15,7 +15,7 @@ non stop, np. Dell OptiPlex). Panel działa na serwerze dodatkowym, więc jest d
 - pokazywać zasoby obu serwerów (procesor, RAM, zajęte GB na dyskach, temperatury) oraz ich historię,
 - zarządzać kontenerami Docker (start/stop/restart, logi, oś czasu awarii) i stosami docker compose,
 - dawać podgląd z kamery USB skierowanej na serwer,
-- wysyłać powiadomienia push, gdy coś przestanie działać (planowane).
+- wysyłać powiadomienia push (PWA), gdy serwer przestanie odpowiadać, kontener padnie albo zasoby przekroczą progi.
 
 Panel steruje sprzętem, więc jest zabezpieczony jak system wystawiony do internetu (przez Tailscale Funnel):
 hasło + kod 2FA, blokada konta, CSRF, Content-Security-Policy, dziennik zdarzeń. Szczegóły w sekcji [Bezpieczeństwo](#bezpieczeństwo).
@@ -34,7 +34,8 @@ hasło + kod 2FA, blokada konta, CSRF, Content-Security-Policy, dziennik zdarze�
 | Frontend (stan obecny) | prototyp w szablonach Jinja2 + htmx + Chart.js (biblioteki serwowane lokalnie), **do zastąpienia przez SPA** wg planu poniżej |
 | Backend / API | Python 3.12, Flask, Flask-Login, Flask-WTF (CSRF), Flask-Limiter, argon2, pyotp (2FA) |
 | Baza danych | PostgreSQL 16, SQLAlchemy, migracje Alembic (Flask-Migrate) |
-| Zadania w tle | APScheduler (ping, metryki, stan kontenerów, retencja danych) |
+| Zadania w tle | APScheduler (ping, metryki, stan kontenerów, alerty, heartbeat, retencja danych) |
+| Powiadomienia | Web Push z kluczami VAPID (`pywebpush`), service worker, manifest PWA |
 | Agent na serwerach | Flask + psutil + Docker SDK, usługa systemd na hoście |
 | Wake-on-LAN | mikrousługa w `network_mode: host` |
 | Kamera | go2rtc (USB → MJPEG), proxy w Flasku za logowaniem |
@@ -83,7 +84,7 @@ Właścicielem wszystkich funkcji jest **@robajs3** (projekt indywidualny). Stat
 | [Oś czasu awarii kontenerów](#oś-czasu-awarii-kontenerów) | 🧪 zaimplementowane, do potwierdzenia na sprzęcie | @robajs3 |
 | [Stosy docker compose](#stosy-docker-compose) | 🧪 zaimplementowane, do potwierdzenia na sprzęcie | @robajs3 |
 | [Podgląd z kamery](#podgląd-z-kamery) | 🧪 zaimplementowane, do potwierdzenia na sprzęcie | @robajs3 |
-| [Powiadomienia push i alerty (PWA)](#powiadomienia-push-i-alerty-pwa) | ⬜ planowane | @robajs3 |
+| [Powiadomienia push i alerty (PWA)](#powiadomienia-push-i-alerty-pwa) | 🧪 zaimplementowane, do potwierdzenia na sprzęcie | @robajs3 |
 | [Interfejs w React (SPA)](#interfejs-w-react-spa) | ⬜ planowane | @robajs3 |
 
 ### Logowanie, 2FA i dziennik zdarzeń
@@ -198,13 +199,32 @@ Właścicielem wszystkich funkcji jest **@robajs3** (projekt indywidualny). Stat
 
 ### Powiadomienia push i alerty (PWA)
 
-**Właściciel:** @robajs3 · **Status:** ⬜ planowane
+**Właściciel:** @robajs3 · **Status:** 🧪 zaimplementowane, do potwierdzenia na sprzęcie
 
 - **Co robi użytkownik:** instaluje panel jako aplikację na telefonie, włącza powiadomienia i dostaje push, gdy serwer przestanie odpowiadać, kontener padnie albo CPU, RAM, dysk lub temperatura przekroczą progi.
-- **Widok:** ekran „Powiadomienia”: włącz/wyłącz, progi alertów, test powiadomienia; baner „Zainstaluj aplikację”.
-- **Dane:** `push_subscriptions`, stan alertów (z histerezą), klucze VAPID; dane źródłowe z `status_events`, `container_events` i metryk.
-- **Najtrudniejsze:** iOS wymaga dodania aplikacji do ekranu głównego, alerty nie mogą się dublować, a gdy padnie sam serwer z panelem, powiadomi o tym zewnętrzny heartbeat.
+- **Widok:** ekran „Powiadomienia”: włącz/wyłącz na tym urządzeniu, test powiadomienia, progi alertów, aktywne alerty, lista urządzeń i historia alertów; baner „Zainstaluj aplikację” (na iOS podpowiedź „Udostępnij → Do ekranu początkowego”).
+- **Dane:** `push_subscriptions`, `alert_state` (stan alertów z histerezą), `alert_events` (historia), `alert_settings` (progi), klucze VAPID w `.env`; dane źródłowe z `status_events`, `agent_state`, `docker_state` i metryk.
+- **Najtrudniejsze:** iOS wymaga dodania aplikacji do ekranu głównego (iOS 16.4+); alerty nie mogą się dublować (powiadomienie tylko przy zmianie stanu, histereza 5 pkt, czas trzymania, cooldown `ALERT_COOLDOWN` na pętle restartów); wyłączenie serwera przyciskiem w panelu i celowe zatrzymanie kontenera nie są awarią; a gdy padnie sam serwer z panelem, powiadomi o tym zewnętrzny heartbeat (`HEARTBEAT_URL`).
 - **Gotowe, gdy:** po wyłączeniu serwera głównego telefon dostaje push w ciągu minuty, a ten sam alert nie przychodzi wielokrotnie.
+
+**Jakie alerty i kiedy:**
+
+| Alert | Warunek | Ustępuje |
+|---|---|---|
+| Serwer główny nie odpowiada | status OFFLINE (po `FAIL_THRESHOLD` nieudanych próbach), także gdy nie wstał po WoL; **nie** po wyłączeniu z panelu | status ONLINE |
+| Agent nie odpowiada | brak danych z agenta dłużej niż „utrzymuje się przez” | agent odpowiada |
+| Kontener | stan „padł” (kod wyjścia ≠ 0/137/143, OOM, pętla restartów) lub „niezdrowy”; zatrzymanie celowe jest cichym końcem alertu | kontener działa i jest zdrowy |
+| CPU, RAM, dysk (każdy punkt montowania), temperatura | wartość ≥ próg przez „utrzymuje się przez” (domyślnie 3 min) | wartość < próg − 5 |
+
+Domyślne progi: CPU 90%, RAM 90%, dysk 90%, temperatura 80°C; wartość 0 wyłącza dany próg. Alerty o serwerze głównym i jego agencie
+milkną, gdy serwer jest wyłączony (agent o kluczu `MAIN_AGENT_KEY`).
+
+**Konfiguracja:**
+
+1. Klucze VAPID: `docker compose exec web flask --app app gen-vapid`, wynik wklej do `.env` (`VAPID_SUBJECT` ustaw na swój adres `mailto:`), potem `docker compose up -d`.
+2. Wymagany jest HTTPS (Tailscale Funnel); przy teście na `http://localhost` też działa.
+3. Zaloguj się, wejdź w „Powiadomienia” i kliknij „Włącz powiadomienia”, potem „Wyślij testowe”. Na iPhonie najpierw dodaj panel do ekranu głównego i otwórz go z ikony.
+4. Watchdog (opcjonalnie): załóż „check” w healthchecks.io (albo push monitor w Uptime Kuma), wklej jego adres do `HEARTBEAT_URL` i ustaw powiadomienia w tej usłudze. Worker pinguje go tylko, gdy ping serwera głównego jest świeży, więc brak pingów oznacza, że padł panel, worker, baza albo cały serwer.
 
 ### Interfejs w React (SPA)
 
@@ -231,7 +251,8 @@ Wymagania: serwer dodatkowy z Dockerem (compose v2), serwer główny z Ubuntu, o
 6. **Włączanie i wyłączanie serwera głównego** (poniżej).
 7. **Kamera (opcjonalnie):** podłącz kamerę USB do serwera dodatkowego, w `.env` ustaw `COMPOSE_PROFILES=camera` i `CAMERA_URL=http://camera:1984`.
    Rozdzielczość i liczbę klatek zmienisz w `go2rtc/go2rtc.yaml`.
-8. **Aktualizacja:** `git pull && docker compose up -d --build`; nowe migracje zastosują się same.
+8. **Powiadomienia push (opcjonalnie):** klucze VAPID i watchdog opisane w sekcji [Powiadomienia push i alerty (PWA)](#powiadomienia-push-i-alerty-pwa).
+9. **Aktualizacja:** `git pull && docker compose up -d --build`; nowe migracje zastosują się same.
 
 ### Włączanie i wyłączanie serwera głównego
 
@@ -269,10 +290,18 @@ Panel potrafi wyłączyć serwer i sterować kontenerami (co daje uprawnienia zb
 - **Akcje sterujące:** wyłączanie to stałe polecenie bez parametrów z żądania, klucz SSH ograniczony przez `command=`, weryfikacja klucza hosta,
   ponowne podanie hasła i potwierdzenie w UI. WoL idzie wyłącznie na MAC z konfiguracji. Kontenery i stosy wskazuje się identyfikatorami z listy
   (walidacja wzorcem), a kontenery samego panelu są chronione (`PROTECTED_PROJECTS`). Zapis plików compose przechodzi walidację i tworzy kopię `.bak`.
+- **Push:** adres usługi push podany przez przeglądarkę musi należeć do znanych dostawców (FCM, Mozilla, Apple, Windows; `PUSH_ALLOWED_HOSTS` dodaje własne), inaczej serwer mógłby wysyłać żądania pod dowolny adres w sieci domowej (SSRF). Klucz prywatny VAPID jest tylko w `.env`. Service worker nie zapisuje w cache stron ani API panelu, a treść powiadomień zawiera tylko nazwy serwerów, kontenerów i wartości metryk.
 - **Agent:** token Bearer i dostęp po zaporze tylko z serwera panelu; członkostwo w grupie `docker` oznacza uprawnienia roota, więc chroń token i port.
 - **Dziennik:** każda akcja sterująca i próba logowania trafia do tabeli `audit_log` (kto, IP, co, kiedy).
 - **Sekrety:** `.env`, `secrets/`, klucze i `*.patch` są w `.gitignore`; w repo jest tylko `.env.example`. Jeśli sekret kiedyś trafił do commita,
   traktuj go jako wyciekły i zmień (samo usunięcie pliku nie czyści historii).
+
+## Testy
+
+Silnik alertów (maszyna stanów, scenariusze na bazie) i lista dozwolonych hostów push: `python -m unittest discover tests`.
+Testy z bazą wymagają osobnej, pustej bazy PostgreSQL o nazwie kończącej się na `test` (czyszczą tabele):
+`TEST_DATABASE_URL=postgresql+psycopg://panel:HASLO@localhost/paneltest python -m unittest discover tests`.
+Ikony PWA odtworzysz poleceniem `python tools/make_icons.py` (Pillow).
 
 ## Praca z repozytorium
 
