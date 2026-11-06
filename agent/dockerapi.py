@@ -72,7 +72,18 @@ def c_action(cid, act):
     if not ID_RE.match(cid) or act not in ("start", "stop", "restart"):
         abort(400)
     try:
-        getattr(cli().containers.get(cid), act)()
+        c = cli().containers.get(cid)
+        if act == "stop":
+            try:
+                if c.status == "paused":
+                    c.unpause()
+                c.stop(timeout=10)
+            except docker.errors.APIError:
+                # kontener w pętli restartów potrafi odrzucić stop: kill + brak auto-restartu
+                c.update(restart_policy={"Name": "no"})
+                c.kill()
+        else:
+            getattr(c, act)()
     except docker.errors.NotFound:
         abort(404)
     except Exception as e:
