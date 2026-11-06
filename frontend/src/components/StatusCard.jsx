@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { action, get } from '../api.js';
 import { usePoll } from '../hooks.js';
-import { Msg, Pill, Time } from './ui.jsx';
+import { Msg, Pill, Time, Tile } from './ui.jsx';
 
 const LABEL = { ONLINE: 'ONLINE', OFFLINE: 'OFFLINE', BOOTING: 'URUCHAMIANIE…', SHUTTING_DOWN: 'WYŁĄCZANIE…' };
 const CLS = { ONLINE: 'ok', OFFLINE: 'bad' };
@@ -28,23 +28,23 @@ export default function StatusCard({ name }) {
   return (
     <section className="card">
       <h3>{name}</h3>
-      <div>
-        {!s ? (error ? <p className="err">{error}</p> : '…') : s.stale ? (
-          <><Pill cls="warn">BRAK DANYCH</Pill><p className="muted">Worker nie zapisuje pomiarów.</p></>
-        ) : (
-          <>
-            <Pill cls={CLS[s.state] || 'warn'}>{LABEL[s.state] || '—'}</Pill>
-            <p>{s.host} &middot; ICMP: {s.icmp_ok ? `${s.icmp_ms.toFixed(1)} ms` : 'brak'}
-              {' '}&middot; TCP: {s.tcp_ok ? `${s.tcp_ms.toFixed(1)} ms` : 'brak'}</p>
-            {s.since && <p className="muted">od <Time iso={s.since} /></p>}
-          </>
-        )}
-      </div>
-      <div className="row">
+      {!s ? (error ? <p className="err">{error}</p> : '…') : s.stale ? (
+        <><Pill cls="warn">BRAK DANYCH</Pill><p className="muted">Worker nie zapisuje pomiarów.</p></>
+      ) : (
+        <div className="metrics">
+          <Tile wide label="Status" sub={s.host}>
+            <span><Pill cls={CLS[s.state] || 'warn'}>{LABEL[s.state] || '—'}</Pill></span>
+          </Tile>
+          <Tile label="ICMP" value={s.icmp_ok ? `${s.icmp_ms.toFixed(1)} ms` : 'brak'} />
+          <Tile label="TCP" value={s.tcp_ok ? `${s.tcp_ms.toFixed(1)} ms` : 'brak'} />
+          {s.since && <Tile wide label="Od"><b className="t-val net"><Time iso={s.since} /></b></Tile>}
+        </div>
+      )}
+      <div className="ctrl">
         <button onClick={wake} disabled={busy}>Włącz (WoL)</button>
-        <form className="row" onSubmit={shutdown}>
+        <form onSubmit={shutdown}>
           <input type="password" placeholder="Hasło" autoComplete="current-password" required
-                 style={{ width: '11rem' }} value={pw} onChange={e => setPw(e.target.value)} />
+                 value={pw} onChange={e => setPw(e.target.value)} />
           <button className="danger" disabled={busy}>Wyłącz</button>
         </form>
       </div>

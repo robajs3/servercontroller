@@ -7,6 +7,17 @@ export const Bar = ({ p }) => (
   <div className="bar"><i className={p >= 90 ? 'hot' : ''} style={{ width: `${Math.min(p || 0, 100)}%` }} /></div>
 );
 
+// Kafelek metryki: etykieta, duża wartość, opis i opcjonalny pasek
+export const Tile = ({ label, value, sub, p, wide, children }) => (
+  <div className={`tile${wide ? ' wide' : ''}`}>
+    <span className="t-label">{label}</span>
+    {value !== undefined && <b className="t-val">{value}</b>}
+    {children}
+    {sub ? <span className="t-sub muted">{sub}</span> : null}
+    {p != null && <Bar p={p} />}
+  </div>
+);
+
 export const Time = ({ iso }) => <time dateTime={iso || undefined}>{fmtTime(iso)}</time>;
 
 // Komunikat akcji: {ok, message} albo walidacja compose ({validation, output})

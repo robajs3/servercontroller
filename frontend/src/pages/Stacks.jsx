@@ -39,16 +39,20 @@ function StacksServer({ srv }) {
           {!d ? (list.error ? <p className="err">Agent: {list.error}</p> : <p className="muted">…</p>) : (
             <>
               {(d.error || d.code !== 200) && <p className="err">Agent: {d.error || d.code}</p>}
-              {d.stacks.map(s => (
-                <div className="row stack" key={s.name}>
-                  <div style={{ flex: 1, minWidth: '12rem' }}><b>{s.name}</b><br /><span className="muted">{s.path}/{s.file}</span></div>
-                  <button className="ghost sm" onClick={() => setEdit({ name: s.name, kind: 'compose' })}>Edytuj</button>
-                  <button className="sm" onClick={() => run(s, 'up', `Wykonać „up -d” dla ${s.name}?`)}>Up</button>
-                  <button className="ghost sm" onClick={() => run(s, 'pull')}>Pull</button>
-                  <button className="ghost sm" onClick={() => run(s, 'restart', `Zrestartować cały stos ${s.name}?`)}>Restart</button>
-                  <button className="danger sm" onClick={() => run(s, 'down', `Wykonać „down” (usuwa kontenery stosu ${s.name}, wolumeny zostają)?`)}>Down</button>
-                </div>
-              ))}
+              <div className="stack-grid">
+                {d.stacks.map(s => (
+                  <div className="stackcard" key={s.name}>
+                    <div className="path"><b>{s.name}</b><br /><span className="muted">{s.path}/{s.file}</span></div>
+                    <div className="btns">
+                      <button className="ghost sm" onClick={() => setEdit({ name: s.name, kind: 'compose' })}>Edytuj</button>
+                      <button className="sm" onClick={() => run(s, 'up', `Wykonać „up -d” dla ${s.name}?`)}>Up</button>
+                      <button className="ghost sm" onClick={() => run(s, 'pull')}>Pull</button>
+                      <button className="ghost sm" onClick={() => run(s, 'restart', `Zrestartować cały stos ${s.name}?`)}>Restart</button>
+                      <button className="danger sm" onClick={() => run(s, 'down', `Wykonać „down” (usuwa kontenery stosu ${s.name}, wolumeny zostają)?`)}>Down</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
               {!d.stacks.length && <p className="muted">Brak stosów. Dodaj katalogi w <code>AGENT_STACK_DIRS</code> (agent.env) albo utwórz nowy stos poniżej.</p>}
             </>
           )}
@@ -119,7 +123,7 @@ function Editor({ srv, name, kind, setKind }) {
           <form onSubmit={save}>
             <textarea className="code" rows="22" spellCheck="false" value={content} onChange={e => setContent(e.target.value)} />
             <div className="row">
-              <input type="password" placeholder="Hasło" autoComplete="current-password" required style={{ width: '12rem' }}
+              <input type="password" placeholder="Hasło" autoComplete="current-password" required className="pwin"
                      value={pw} onChange={e => setPw(e.target.value)} />
               <button>Zapisz</button>
             </div>

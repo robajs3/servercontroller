@@ -22,7 +22,7 @@ export default function ChartCanvas({ labels, datasets, range, scales = {} }) {
       type: 'line',
       data: { labels: [], datasets: [] },
       options: {
-        animation: false, interaction: { mode: 'index', intersect: false },
+        animation: false, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
         scales: {
           x: { type: 'category', ticks: { maxTicksLimit: 8, callback(v) {
             return new Date(this.getLabelForValue(v)).toLocaleString('pl', tickFmt(rangeRef.current));
@@ -42,5 +42,5 @@ export default function ChartCanvas({ labels, datasets, range, scales = {} }) {
     c.update('none');
   }, [labels, datasets, range]);
 
-  return <canvas ref={ref} height="110" />;
+  return <div className="chartbox"><canvas ref={ref} /></div>;
 }

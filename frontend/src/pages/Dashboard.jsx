@@ -8,12 +8,16 @@ import ResourcesChart from '../components/ResourcesChart.jsx';
 export default function Dashboard() {
   const { main_name, camera_enabled, agents } = useSession();
   return (
-    <>
-      <StatusCard name={main_name} />
-      {camera_enabled && <CameraSnap />}
-      <PingChart />
+    <div className="dash">
+      <div className="dash-row">
+        <StatusCard name={main_name} />
+        {camera_enabled && <CameraSnap />}
+      </div>
       {agents.map(a => <ServerCard key={a.key} agent={a} />)}
-      {agents.length > 0 && <ResourcesChart agents={agents} />}
-    </>
+      <div className="dash-row wide">
+        <PingChart />
+        {agents.length > 0 && <ResourcesChart agents={agents} />}
+      </div>
+    </div>
   );
 }

@@ -54,7 +54,7 @@ function DockerServer({ srv }) {
       <Timeline srv={srv} />
       <section className="card"><h3>Zdarzenia</h3>
         {!evs.data ? <Loading error={evs.error} /> : !evs.data.length ? <p className="muted">Brak zdarzeń.</p> : (
-          <div className="scroll"><table><tbody>
+          <div className="scroll"><table className="rtable flow"><tbody>
             {evs.data.map((e, i) => (
               <tr key={i}><td className="muted"><Time iso={e.ts} /></td><td><b>{e.name}</b></td>
                 <td><Pill sm cls={eventCls(e.kind)}>{EVENT_LABEL[e.kind] || e.kind}</Pill></td>
@@ -77,19 +77,19 @@ function ContainerTable({ res, onStart, onConfirm, onLogs }) {
     <>
       {!st.ok && <p className="err">Docker/agent niedostępny: {st.error}{st.has_data && <> (ostatnie znane dane z <Time iso={st.checked} />)</>}</p>}
       {cs.length > 0 ? (
-        <table>
+        <table className="rtable">
           <thead><tr><th>Kontener</th><th>Stan</th><th>CPU</th><th>RAM</th><th>Restarty</th><th></th></tr></thead>
           <tbody>
             {cs.map(c => (
               <tr key={c.id}>
-                <td><b>{c.name}</b><br /><span className="muted">{c.project || '–'} · {c.image}{c.ports && c.ports.length ? ` · ${c.ports.join(', ')}` : ''}</span></td>
-                <td><Pill sm cls={c.cls}>{c.state}</Pill>{' '}
+                <td className="full"><b>{c.name}</b><br /><span className="muted">{c.project || '–'} · {c.image}{c.ports && c.ports.length ? ` · ${c.ports.join(', ')}` : ''}</span></td>
+                <td data-label="Stan"><div><Pill sm cls={c.cls}>{c.state}</Pill>{' '}
                   {c.health && <span className="muted">{c.health}</span>}
                   {c.up_since ? <><br /><span className="muted">od {uptime((nowMs - new Date(c.up_since).getTime()) / 1000)}</span></>
-                    : c.exit_code != null && c.state !== 'created' ? <><br /><span className="muted">kod {c.exit_code}{c.oom ? ' · OOM' : ''}</span></> : null}</td>
-                <td>{c.cpu !== undefined ? `${c.cpu.toFixed(1)}%` : '–'}</td>
-                <td>{c.mem !== undefined ? mb(c.mem) : '–'}</td>
-                <td>{c.restarts}</td>
+                    : c.exit_code != null && c.state !== 'created' ? <><br /><span className="muted">kod {c.exit_code}{c.oom ? ' · OOM' : ''}</span></> : null}</div></td>
+                <td data-label="CPU">{c.cpu !== undefined ? `${c.cpu.toFixed(1)}%` : '–'}</td>
+                <td data-label="RAM">{c.mem !== undefined ? mb(c.mem) : '–'}</td>
+                <td data-label="Restarty">{c.restarts}</td>
                 <td className="acts">
                   {c.state !== 'running' && <button className="sm" onClick={() => onStart(c)}>Start</button>}
                   {['running', 'restarting', 'paused'].includes(c.state) && !c.protected && (

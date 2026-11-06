@@ -62,8 +62,8 @@ function Active({ items }) {
     <section className="card">
       <h3>Aktywne alerty</h3>
       {items.length ? (
-        <table><thead><tr><th>Od</th><th>Alert</th><th></th></tr></thead><tbody>
-          {items.map((a, i) => <tr key={i}><td><Time iso={a.since} /></td><td>{a.title}</td><td className="muted">{a.detail}</td></tr>)}
+        <table className="rtable"><thead><tr><th>Od</th><th>Alert</th><th></th></tr></thead><tbody>
+          {items.map((a, i) => <tr key={i}><td data-label="Od"><Time iso={a.since} /></td><td data-label="Alert">{a.title}</td><td className="muted full">{a.detail}</td></tr>)}
         </tbody></table>
       ) : <p className="ok-t">Brak aktywnych alertów.</p>}
     </section>
@@ -99,7 +99,7 @@ function SettingsForm({ settings, limits }) {
         <p key={k}><label><input type="checkbox" checked={!!f[k]} style={{ width: 'auto' }}
                                  onChange={e => setF({ ...f, [k]: e.target.checked })} /> {label}{hint && <> <span className="muted">{hint}</span></>}</label></p>
       ))}
-      <div className="grid">
+      <div className="grid nums">
         {NUMS.map(([k, label]) => (
           <label key={k}>{label} <input type="number" min={limits[k][0]} max={limits[k][1]} value={f[k]}
                                          onChange={e => setF({ ...f, [k]: e.target.value })} /></label>
@@ -123,10 +123,10 @@ function Devices({ subs, onChanged }) {
       <h3>Urządzenia z powiadomieniami</h3>
       {err && <p className="err">{err}</p>}
       {subs.length ? (
-        <table><thead><tr><th>Urządzenie</th><th>Dodano</th><th>Ostatnia dostawa</th><th></th></tr></thead><tbody>
+        <table className="rtable"><thead><tr><th>Urządzenie</th><th>Dodano</th><th>Ostatnia dostawa</th><th></th></tr></thead><tbody>
           {subs.map(s => (
-            <tr key={s.id}><td>{s.device}</td><td><Time iso={s.created} /></td><td><Time iso={s.last_ok} /></td>
-              <td><button className="ghost sm" onClick={() => del(s)}>Usuń</button></td></tr>
+            <tr key={s.id}><td data-label="Urządzenie">{s.device}</td><td data-label="Dodano"><Time iso={s.created} /></td><td data-label="Ostatnia dostawa"><Time iso={s.last_ok} /></td>
+              <td className="acts"><button className="ghost sm" onClick={() => del(s)}>Usuń</button></td></tr>
           ))}
         </tbody></table>
       ) : <p className="muted">Żadne urządzenie nie ma jeszcze włączonych powiadomień.</p>}
@@ -139,11 +139,11 @@ function History({ events }) {
     <section className="card">
       <h3>Historia alertów</h3>
       {events.length ? (
-        <div className="scroll"><table><thead><tr><th>Czas</th><th></th><th>Alert</th><th>Szczegóły</th></tr></thead><tbody>
+        <div className="scroll"><table className="rtable"><thead><tr><th>Czas</th><th></th><th>Alert</th><th>Szczegóły</th></tr></thead><tbody>
           {events.map((e, i) => (
-            <tr key={i}><td><Time iso={e.ts} /></td>
-              <td><Pill sm cls={e.kind === 'fire' ? 'bad' : 'ok'}>{e.kind === 'fire' ? 'wystąpił' : 'ustąpił'}</Pill></td>
-              <td>{e.title}</td><td className="muted">{e.detail}</td></tr>
+            <tr key={i}><td data-label="Czas"><Time iso={e.ts} /></td>
+              <td data-label="Stan"><Pill sm cls={e.kind === 'fire' ? 'bad' : 'ok'}>{e.kind === 'fire' ? 'wystąpił' : 'ustąpił'}</Pill></td>
+              <td data-label="Alert">{e.title}</td><td className="muted full">{e.detail}</td></tr>
           ))}
         </tbody></table></div>
       ) : <p className="muted">Brak zdarzeń.</p>}
