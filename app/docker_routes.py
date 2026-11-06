@@ -11,8 +11,14 @@ from .models import ContainerEvent, DockerState, now
 from .routes import RANGES, audit, ph
 
 dbp = Blueprint("dock", __name__)
-# kontenery tych projektów compose można tylko uruchamiać (nie zatrzymasz panelu z panelu)
+# chronione są tylko usługi PROTECTED_SERVICES z projektów PROTECTED_PROJECTS (domyślnie web i db panelu).
+# Reszta (worker, wol...) da się zatrzymać z panelu. Kontener w pętli restartów/zatrzymany nigdy nie jest chroniony.
 PROTECTED = {x.strip() for x in os.getenv("PROTECTED_PROJECTS", "servercontroller").split(",") if x.strip()}
+PROTECTED_SERVICES = {x.strip() for x in os.getenv("PROTECTED_SERVICES", "web,db").split(",") if x.strip()}
+
+def is_protected(c):
+    return (c.get("project") in PROTECTED and c.get("state") in ("running", "paused")
+            and (not PROTECTED_SERVICES or c.get("service") in PROTECTED_SERVICES))
 ID = re.compile(r"^[0-9a-f]{12}$")
 NAME = re.compile(r"^[A-Za-z0-9_.-]{1,60}$")
 
@@ -70,7 +76,7 @@ def docker_partial(key):
     st = db.session.get(DockerState, key)
     cs = []
     for c in ((st.data or {}).get("containers", []) if st and st.data else []):
-        c = dict(c); c["protected"] = c.get("project") in PROTECTED; c["cls"] = ds.pill_class(c)
+        c = dict(c); c["protected"] = is_protected(c); c["cls"] = ds.pill_class(c)
         c["up_since"] = ds.parse_ts(c["started_at"]) if c["running"] else None
         cs.append(c)
     cs.sort(key=lambda c: (c.get("project") or "~", c["name"]))
@@ -94,7 +100,7 @@ def c_action(key, cid, act):
     c = next((c for c in (st.data or {}).get("containers", []) if c["id"] == cid), None) if st and st.data else None
     if not c:
         return _msg("Nie znaleziono kontenera, odśwież listę.", False)
-    if act != "start" and c.get("project") in PROTECTED:
+    if act != "start" and is_protected(c):
         return _msg(f"{c['name']} należy do panelu: zatrzymanie z panelu jest zablokowane.", False)
     code, body, err = _call(a, "POST", f"/docker/containers/{cid}/{act}", timeout=45)
     audit(f"docker {act} {key}/{c['name']} -> {code or err}")
