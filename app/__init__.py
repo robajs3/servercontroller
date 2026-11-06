@@ -2,7 +2,7 @@ import os, getpass, secrets
 from datetime import timedelta
 import click, pyotp, qrcode
 from argon2 import PasswordHasher
-from flask import Flask, g, jsonify, redirect, request, url_for
+from flask import Flask, g, jsonify, request
 from werkzeug.middleware.proxy_fix import ProxyFix
 from .extensions import db, login_manager, csrf, limiter, migrate
 from .models import User
@@ -21,16 +21,12 @@ def create_app():
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)  # Funnel
     db.init_app(app); csrf.init_app(app); limiter.init_app(app); migrate.init_app(app, db)
     login_manager.init_app(app)
-    login_manager.login_view = "main.login"
 
     @login_manager.unauthorized_handler
     def _unauthorized():
-        # API i żądania htmx dostają 401 (a nie przekierowanie na HTML logowania)
-        if request.path.startswith("/api/") or request.headers.get("HX-Request"):
-            r = jsonify(error="unauthorized"); r.status_code = 401
-            r.headers["HX-Redirect"] = url_for("main.login")
-            return r
-        return redirect(url_for("main.login"))
+        # frontend (React) sam przechodzi do ekranu logowania po 401
+        r = jsonify(error="unauthorized"); r.status_code = 401
+        return r
     login_manager.user_loader(lambda uid: db.session.get(User, int(uid)))
 
     from .routes import bp
@@ -43,6 +39,19 @@ def create_app():
     app.register_blueprint(pwa)
     from .notifications import nbp
     app.register_blueprint(nbp)
+    from .spa import spa
+    app.register_blueprint(spa)   # ostatni: catch-all dla tras frontendu
+
+    from werkzeug.exceptions import HTTPException
+
+    @app.errorhandler(HTTPException)
+    def _http_error(e):
+        # API zawsze odpowiada JSON-em (limity, CSRF, 404...), strony frontendu zwykłym błędem
+        if request.path.startswith("/api/"):
+            msg = {429: "Zbyt wiele żądań, spróbuj za chwilę.", 400: "Nieprawidłowe żądanie lub wygasły token sesji."}.get(e.code, e.description)
+            r = jsonify(error=msg); r.status_code = e.code
+            return r
+        return e
 
     csp_header = "Content-Security-Policy-Report-Only" if os.getenv("CSP_REPORT_ONLY") == "1" else "Content-Security-Policy"
 

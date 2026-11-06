@@ -1,14 +1,13 @@
 import os, re
 from datetime import timedelta
 from argon2.exceptions import VerifyMismatchError
-from flask import Blueprint, abort, jsonify, make_response, render_template, request
+from flask import Blueprint, abort, jsonify, request
 from flask_login import current_user, login_required
-from markupsafe import escape
 from sqlalchemy import text
 from . import agents, dockerstate as ds
 from .extensions import db, limiter
 from .models import ContainerEvent, DockerState, now
-from .routes import RANGES, audit, ph
+from .routes import RANGES, audit, ph, _res
 
 dbp = Blueprint("dock", __name__)
 # chronione są tylko usługi PROTECTED_SERVICES z projektów PROTECTED_PROJECTS (domyślnie web i db panelu).
@@ -22,27 +21,17 @@ def is_protected(c):
 ID = re.compile(r"^[0-9a-f]{12}$")
 NAME = re.compile(r"^[A-Za-z0-9_.-]{1,60}$")
 
-@dbp.app_template_filter("mb")
-def _mb(v):
-    return f"{(v or 0) / 1024**2:.0f} MB"
-
 def _agent(key):
     return agents.AGENTS.get(key) or abort(404)
 
-def _pw():
+def _json():
+    return request.get_json(silent=True) or {}
+
+def _pw(j):
     try:
-        return ph.verify(current_user.password_hash, request.form.get("password", ""))
+        return ph.verify(current_user.password_hash, str(j.get("password", "")))
     except VerifyMismatchError:
         return False
-
-def _html(html, trigger=None):
-    r = make_response(html)
-    if trigger:
-        r.headers["HX-Trigger"] = trigger
-    return r
-
-def _msg(msg, ok, trigger=None):
-    return _html(f'<p class="{"ok-t" if ok else "err"}">{escape(msg)}</p>', trigger)
 
 def _call(a, method, path, timeout=10, **kw):
     try:
@@ -55,41 +44,33 @@ def _call(a, method, path, timeout=10, **kw):
     except Exception as e:
         return 0, None, type(e).__name__
 
-def _tabs_key():
-    ags = list(agents.AGENTS.values())
-    if not ags:
-        abort(404)
-    k = request.args.get("s")
-    return ags, (k if k in agents.AGENTS else ags[0]["key"])
+def _iso(t):
+    return t.isoformat() if t else None
 
 # ---------------- kontenery ----------------
-@dbp.route("/docker")
+@dbp.route("/api/docker/<key>/containers")
 @login_required
-def docker_page():
-    ags, key = _tabs_key()
-    return render_template("docker.html", agents=ags, key=key)
-
-@dbp.route("/partials/docker/<key>")
-@login_required
-def docker_partial(key):
+def docker_containers(key):
     _agent(key)
     st = db.session.get(DockerState, key)
     cs = []
     for c in ((st.data or {}).get("containers", []) if st and st.data else []):
         c = dict(c); c["protected"] = is_protected(c); c["cls"] = ds.pill_class(c)
-        c["up_since"] = ds.parse_ts(c["started_at"]) if c["running"] else None
+        c["up_since"] = _iso(ds.parse_ts(c["started_at"])) if c["running"] else None
         cs.append(c)
     cs.sort(key=lambda c: (c.get("project") or "~", c["name"]))
-    return render_template("_docker.html", key=key, st=st, cs=cs, now=now())
+    return jsonify(state=None if not st else dict(ok=bool(st.ok), error=st.error, checked=_iso(st.checked),
+                                                  has_data=bool(st.data)),
+                   containers=cs)
 
-@dbp.route("/partials/docker/<key>/events")
+@dbp.route("/api/docker/<key>/events")
 @login_required
 def docker_events(key):
     _agent(key)
     evs = ContainerEvent.query.filter_by(server=key).order_by(ContainerEvent.id.desc()).limit(40).all()
-    return render_template("_events.html", evs=evs)
+    return jsonify([dict(ts=_iso(e.ts), name=e.name, kind=e.kind, detail=e.detail) for e in evs])
 
-@dbp.post("/docker/<key>/c/<cid>/<act>")
+@dbp.post("/api/docker/<key>/c/<cid>/<act>")
 @login_required
 @limiter.limit("30/minute")
 def c_action(key, cid, act):
@@ -99,17 +80,17 @@ def c_action(key, cid, act):
     st = db.session.get(DockerState, key)
     c = next((c for c in (st.data or {}).get("containers", []) if c["id"] == cid), None) if st and st.data else None
     if not c:
-        return _msg("Nie znaleziono kontenera, odśwież listę.", False)
+        return _res("Nie znaleziono kontenera, odśwież listę.", False)
     if act != "start" and is_protected(c):
-        return _msg(f"{c['name']} należy do panelu: zatrzymanie z panelu jest zablokowane.", False)
+        return _res(f"{c['name']} należy do panelu: zatrzymanie z panelu jest zablokowane.", False)
     code, body, err = _call(a, "POST", f"/docker/containers/{cid}/{act}", timeout=45)
     audit(f"docker {act} {key}/{c['name']} -> {code or err}")
     if code != 200:
-        return _msg(f"Błąd: {(body or {}).get('error') or err or code}", False)
+        return _res(f"Błąd: {(body or {}).get('error') or err or code}", False)
     ds.refresh(a, stats=False)
-    return _msg(f"{c['name']}: {act} wykonane", True, "refresh-docker")
+    return _res(f"{c['name']}: {act} wykonane", True)
 
-@dbp.get("/docker/<key>/c/<cid>/logs")
+@dbp.get("/api/docker/<key>/c/<cid>/logs")
 @login_required
 def c_logs(key, cid):
     a = _agent(key)
@@ -122,9 +103,7 @@ def c_logs(key, cid):
         body = r.text if r.status_code == 200 else f"Błąd agenta: {r.status_code}"
     except Exception as e:
         body = f"Błąd: {type(e).__name__}"
-    return _html('<p class="muted">Logi (ostatnie linie) <button class="ghost sm" '
-                 'data-clear="#logbox">zamknij</button></p>'
-                 f'<pre class="log">{escape(body)}</pre>')
+    return jsonify(text=body)
 
 @dbp.route("/api/docker/timeline")
 @login_required
@@ -147,19 +126,13 @@ def api_timeline():
     return jsonify(**{"from": iso(since), "to": iso(end), "rows": rows})
 
 # ---------------- stosy compose ----------------
-@dbp.route("/stacks")
+@dbp.route("/api/stacks/<key>")
 @login_required
-def stacks_page():
-    ags, key = _tabs_key()
-    return render_template("stacks.html", agents=ags, key=key)
-
-@dbp.route("/partials/stacks/<key>")
-@login_required
-def stacks_partial(key):
+def stacks_list(key):
     code, body, err = _call(_agent(key), "GET", "/stacks", timeout=8)
-    return render_template("_stacks.html", key=key, code=code, err=err, stacks=(body or {}).get("stacks", []))
+    return jsonify(code=code, error=err, stacks=(body or {}).get("stacks", []))
 
-@dbp.get("/stacks/<key>/<name>/edit")
+@dbp.get("/api/stacks/<key>/<name>/file")
 @login_required
 def st_edit(key, name):
     a = _agent(key)
@@ -168,51 +141,56 @@ def st_edit(key, name):
     kind = "env" if request.args.get("kind") == "env" else "compose"
     code, body, err = _call(a, "GET", f"/stacks/{name}/files/{kind}")
     if code != 200 or not body:
-        return _msg(f"Nie udało się wczytać pliku: {err or code}", False)
-    return render_template("_editor.html", key=key, name=name, kind=kind, **{k: body.get(k) for k in ("content", "exists", "file")})
+        return _res(f"Nie udało się wczytać pliku: {err or code}", False)
+    return jsonify(ok=True, kind=kind, **{k: body.get(k) for k in ("content", "exists", "file")})
 
-@dbp.post("/stacks/<key>/<name>/save")
+def _validation(body):
+    r = jsonify(ok=False, validation=True, output=(body or {}).get("error", ""))
+    r.status_code = 422
+    return r
+
+@dbp.post("/api/stacks/<key>/<name>/save")
 @login_required
 @limiter.limit("10/minute")
 def st_save(key, name):
-    a = _agent(key)
-    kind = "env" if request.form.get("kind") == "env" else "compose"
+    a = _agent(key); j = _json()
+    kind = "env" if j.get("kind") == "env" else "compose"
     if not NAME.match(name):
         abort(400)
-    if not _pw():
+    if not _pw(j):
         audit(f"stack save DENIED {key}/{name}")
-        return _msg("Nieprawidłowe hasło.", False)
+        return _res("Nieprawidłowe hasło.", False)
     code, body, err = _call(a, "PUT", f"/stacks/{name}/files/{kind}", timeout=40,
-                            json={"content": request.form.get("content", "").replace("\r\n", "\n")})
+                            json={"content": str(j.get("content", "")).replace("\r\n", "\n")})
     audit(f"stack save {key}/{name}/{kind} -> {code or err}")
     if code == 422:
-        return _html(f'<p class="err">Walidacja nie przeszła, plik NIE został zapisany:</p><pre class="log">{escape((body or {}).get("error", ""))}</pre>')
+        return _validation(body)
     if code != 200 or not body or not body.get("ok"):
-        return _msg(f"Błąd zapisu: {(body or {}).get('error') or err or code}", False)
+        return _res(f"Błąd zapisu: {(body or {}).get('error') or err or code}", False)
     extra = " Kopia poprzedniej wersji zapisana (.bak)." if body.get("backup") else ""
-    return _msg("Zapisano." + extra + " Użyj „Up”, aby zastosować zmiany.", True)
+    return _res("Zapisano." + extra + " Użyj „Up”, aby zastosować zmiany.", True)
 
-@dbp.post("/stacks/<key>/new")
+@dbp.post("/api/stacks/<key>/new")
 @login_required
 @limiter.limit("5/minute")
 def st_new(key):
-    a = _agent(key)
-    name = request.form.get("name", "").strip().lower()
+    a = _agent(key); j = _json()
+    name = str(j.get("name", "")).strip().lower()
     if not re.match(r"^[a-z0-9][a-z0-9_-]{0,40}$", name):
-        return _msg("Nazwa: małe litery, cyfry, - i _ (max 41 znaków).", False)
-    if not _pw():
+        return _res("Nazwa: małe litery, cyfry, - i _ (max 41 znaków).", False)
+    if not _pw(j):
         audit(f"stack new DENIED {key}/{name}")
-        return _msg("Nieprawidłowe hasło.", False)
+        return _res("Nieprawidłowe hasło.", False)
     code, body, err = _call(a, "POST", "/stacks", timeout=40,
-                            json={"name": name, "content": request.form.get("content", "").replace("\r\n", "\n")})
+                            json={"name": name, "content": str(j.get("content", "")).replace("\r\n", "\n")})
     audit(f"stack new {key}/{name} -> {code or err}")
     if code == 422:
-        return _html(f'<p class="err">Walidacja nie przeszła:</p><pre class="log">{escape((body or {}).get("error", ""))}</pre>')
+        return _validation(body)
     if code != 200:
-        return _msg(f"Błąd: {(body or {}).get('error') or err or code}", False)
-    return _msg(f"Utworzono stos „{name}”. Kliknij „Up”, aby go uruchomić.", True, "refresh-stacks")
+        return _res(f"Błąd: {(body or {}).get('error') or err or code}", False)
+    return _res(f"Utworzono stos „{name}”. Kliknij „Up”, aby go uruchomić.", True)
 
-@dbp.post("/stacks/<key>/<name>/run/<action>")
+@dbp.post("/api/stacks/<key>/<name>/run/<action>")
 @login_required
 @limiter.limit("10/minute")
 def st_run(key, name, action):
@@ -222,16 +200,15 @@ def st_run(key, name, action):
     code, body, err = _call(a, "POST", f"/stacks/{name}/{action}")
     audit(f"stack {action} {key}/{name} -> {code or err}")
     if code != 200 or not body:
-        return _html(f'<div id="job"><p class="err">{escape((body or {}).get("error") or err or code)}</p></div>')
-    return render_template("_job.html", key=key, j={"id": body["job"], "stack": name, "action": action,
-                                                     "status": "running", "output": "", "rc": None})
+        return _res(str((body or {}).get("error") or err or code), False)
+    return jsonify(ok=True, job=dict(id=body["job"], stack=name, action=action, status="running", output="", rc=None))
 
-@dbp.get("/stacks/<key>/job/<jid>")
+@dbp.get("/api/stacks/<key>/job/<jid>")
 @login_required
 def job(key, jid):
     if not ID.match(jid):
         abort(400)
     code, j, err = _call(_agent(key), "GET", f"/jobs/{jid}")
     if code != 200 or not j:
-        return _html(f'<div id="job"><p class="err">Nie znaleziono zadania ({escape(err or code)})</p></div>')
-    return _html(render_template("_job.html", key=key, j=j), None if j["status"] == "running" else "refresh-docker")
+        return _res(f"Nie znaleziono zadania ({err or code})", False, 404)
+    return jsonify(ok=True, job=j)

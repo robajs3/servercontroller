@@ -307,3 +307,18 @@ Ikony PWA odtworzysz poleceniem `python tools/make_icons.py` (Pillow).
 
 Zmiany wprowadzam małymi commitami, jeden logiczny krok na commit, z prefiksem typu: `feat`, `fix`, `refactor`, `docs`, `chore`
 (np. `fix(auth): kod TOTP można użyć tylko raz`). Dzięki temu historia pokazuje postęp prac, a pojedynczy krok można łatwo wycofać.
+
+## Frontend (React)
+
+Interfejs to aplikacja React (Vite) w katalogu `frontend/`; Flask wystawia wyłącznie JSON API (`/api/...`) i serwuje zbudowaną aplikację.
+`docker compose up -d --build` buduje frontend w osobnym etapie Dockerfile, więc na serwerze nie jest potrzebny Node.
+
+Praca nad frontendem (hot reload, proxy do panelu na `127.0.0.1:8000`, backend z `COOKIE_SECURE=0`):
+
+```
+cd frontend && npm install && npm run dev      # http://localhost:5173
+npm run build                                  # -> frontend/dist (do app/static/spa, jeśli uruchamiasz Flask bez Dockera)
+```
+
+Struktura: `src/pages/` (Serwery, Docker, Stosy, Kamera, Powiadomienia, Logowanie), `src/components/` (karty, wykresy Chart.js, baner instalacji),
+`src/api.js` (klient z tokenem CSRF i obsługą wygasłej sesji), `src/pwa.js` (service worker, push). CSP bez zmian: brak inline JS, wszystko z własnego origin.

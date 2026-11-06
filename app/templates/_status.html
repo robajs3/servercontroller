@@ -1,9 +1,0 @@
-{% if stale %}
-  <div class="pill warn">BRAK DANYCH</div><p class="muted">Worker nie zapisuje pomiarów.</p>
-{% else %}
-  {% set st = ev.state if ev else None %}
-  <div class="pill {{ 'ok' if st == 'ONLINE' else ('bad' if st == 'OFFLINE' else 'warn') }}">{{ {'ONLINE':'ONLINE','OFFLINE':'OFFLINE','BOOTING':'URUCHAMIANIE…','SHUTTING_DOWN':'WYŁĄCZANIE…'}.get(st, '—') }}</div>
-  <p>{{ host }} &middot; ICMP: {{ ('%.1f ms' % last.rtt_ms) if last.ok else 'brak' }}
-     &middot; TCP: {{ ('%.1f ms' % last.tcp_ms) if last.tcp_ok else 'brak' }}</p>
-  {% if ev %}<p class="muted">od {{ ev.ts|local }}</p>{% endif %}
-{% endif %}

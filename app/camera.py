@@ -1,7 +1,7 @@
 import os, threading, time
 from datetime import datetime
 import requests
-from flask import Blueprint, Response, abort, render_template, request
+from flask import Blueprint, Response, abort, request
 from flask_login import login_required
 from .extensions import limiter
 from .routes import audit
@@ -12,19 +12,9 @@ SRC = os.getenv("CAMERA_SRC", "cam")
 MAX_SECONDS = int(os.getenv("CAMERA_STREAM_MAX_SECONDS", 900))
 SLOTS = threading.BoundedSemaphore(int(os.getenv("CAMERA_MAX_STREAMS", 2)))
 
-@cam.app_context_processor
-def _ctx():
-    return {"camera_enabled": bool(URL)}
-
 def _need():
     if not URL:
         abort(404)
-
-@cam.route("/camera")
-@login_required
-def camera_page():
-    _need()
-    return render_template("camera.html", max_s=MAX_SECONDS)
 
 @cam.route("/camera/snapshot")
 @login_required

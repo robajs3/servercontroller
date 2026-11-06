@@ -10,3 +10,7 @@ id_rsa*
 # Python
 __pycache__/
 *.pyc
+# Frontend
+frontend/node_modules/
+frontend/dist/
+app/static/spa/

@@ -1,5 +1,5 @@
-"""Ekran „Powiadomienia”: subskrypcje push, progi alertów, historia. API wołane z static/pwa.js."""
-from flask import Blueprint, abort, flash, jsonify, redirect, render_template, request, url_for
+"""Ekran „Powiadomienia”: subskrypcje push, progi alertów, historia. JSON API wołane z frontendu (React)."""
+from flask import Blueprint, abort, jsonify, request
 from flask_login import current_user, login_required
 from .extensions import db, limiter
 from . import alerts, push
@@ -14,8 +14,7 @@ def _err(msg, code=400):
     return r
 
 
-@nbp.app_template_filter("ua_short")
-def _ua_short(ua):
+def ua_short(ua):
     """Z User-Agenta robimy krótką nazwę urządzenia, np. „Chrome, Android”."""
     ua = ua or ""
     os_ = next((n for k, n in (("iPhone", "iPhone"), ("iPad", "iPad"), ("Android", "Android"), ("Windows", "Windows"),
@@ -25,42 +24,50 @@ def _ua_short(ua):
     return f"{br}, {os_}"
 
 
-@nbp.route("/notifications")
+_iso = lambda t: t.isoformat() if t else None
+
+
+@nbp.get("/api/notifications")
 @login_required
 def page():
     subs = PushSubscription.query.filter_by(user_id=current_user.id).order_by(PushSubscription.created).all()
-    return render_template("notifications.html", cfg=alerts.get_settings(), subs=subs, configured=push.configured(),
-                           active=alerts.active_alerts(), events=alerts.recent_events(20))
+    return jsonify(
+        configured=push.configured(),
+        settings=alerts.get_settings(),
+        limits={k: list(v) for k, v in alerts.LIMITS.items()},
+        subs=[dict(id=s.id, device=ua_short(s.ua), created=_iso(s.created), last_ok=_iso(s.last_ok)) for s in subs],
+        active=[dict(since=_iso(a.since), title=a.title, detail=a.detail) for a in alerts.active_alerts()],
+        events=[dict(ts=_iso(e.ts), kind=e.kind, title=e.title, detail=e.detail) for e in alerts.recent_events(20)])
 
 
-def _num(form, name, errors):
+def _num(j, name, errors):
     lo, hi = alerts.LIMITS[name]
     try:
-        v = int(form.get(name, ""))
-    except ValueError:
+        v = int(j.get(name))
+        if isinstance(j.get(name), bool):
+            raise ValueError
+    except (TypeError, ValueError):
         errors.append(f"{name}: podaj liczbę całkowitą"); return alerts.DEFAULTS[name]
     if not lo <= v <= hi:
         errors.append(f"{name}: dozwolony zakres {lo}–{hi}"); return alerts.DEFAULTS[name]
     return v
 
 
-@nbp.post("/notifications/settings")
+@nbp.post("/api/notifications/settings")
 @login_required
 @limiter.limit("20/minute")
 def save_settings():
+    j = request.get_json(silent=True) or {}
     errors, cfg = [], {}
     for k in alerts.FLAGS:
-        cfg[k] = request.form.get(k) == "1"
+        cfg[k] = j.get(k) is True
     for k in alerts.LIMITS:
-        cfg[k] = _num(request.form, k, errors)
+        cfg[k] = _num(j, k, errors)
     if errors:
-        flash("Nie zapisano: " + "; ".join(errors))
-    else:
-        alerts.save_settings(cfg)
-        audit("alert settings: " + ", ".join(f"{k}={cfg[k]}" for k in sorted(cfg)))
-        flash("Zapisano ustawienia alertów.")
-    return redirect(url_for("notif.page"))
-
+        return _err("Nie zapisano: " + "; ".join(errors))
+    alerts.save_settings(cfg)
+    audit("alert settings: " + ", ".join(f"{k}={cfg[k]}" for k in sorted(cfg)))
+    return jsonify(ok=True, message="Zapisano ustawienia alertów.", settings=alerts.get_settings())
 
 @nbp.get("/api/push/key")
 @login_required

@@ -2,15 +2,13 @@ import os
 from datetime import timedelta
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
+from flask import Blueprint, request, jsonify
 from flask_login import login_user, logout_user, login_required, current_user
 from sqlalchemy import text
 from .extensions import db, limiter
 from .security import verify_totp_once, is_locked, register_failure, reset_failures, LOCK_MINUTES
 from .models import User, AuditLog, PingSample, StatusEvent, AgentState, now
-from markupsafe import Markup, escape
 from . import actions, agents
-from zoneinfo import ZoneInfo
 from flask import abort
 
 bp = Blueprint("main", __name__)
@@ -22,49 +20,51 @@ def audit(action):
                             ip=request.remote_addr, action=action))
     db.session.commit()
 
-@bp.route("/login", methods=["GET", "POST"])
-@limiter.limit("5/minute;30/hour", methods=["POST"])
-def login():
-    if request.method == "POST":
-        name = request.form.get("username", "")
-        u = User.query.filter_by(username=name).first()
-        locked = bool(u and is_locked(u))
-        try:                                      # hasło sprawdzamy zawsze (stały czas, także dla nieznanego loginu)
-            ph.verify(u.password_hash if u else DUMMY, request.form.get("password", ""))
-            pw_ok = u is not None
-        except VerifyMismatchError:
-            pw_ok = False
-        # kod TOTP zużywamy dopiero po poprawnym haśle i tylko gdy konto nie jest zablokowane
-        if pw_ok and not locked and verify_totp_once(u, request.form.get("code", "")):
-            reset_failures(u)
-            login_user(u, remember=False)
-            audit("login ok")
-            return redirect(url_for("main.dashboard"))
-        newly_locked = bool(u and not locked and register_failure(u))
-        audit(f"login FAIL ({name[:32]})" + (" [konto zablokowane]" if locked else "")
-              + (f" -> blokada {LOCK_MINUTES} min" if newly_locked else ""))
-        flash("Nieprawidłowe dane logowania lub konto jest tymczasowo zablokowane")
-    return render_template("login.html")
+def _res(msg, ok, code=None):
+    """Wspólna odpowiedź akcji: {ok, message}. Błędy dostają kod 4xx, żeby klient nie musiał zgadywać."""
+    r = jsonify(ok=ok, message=msg)
+    r.status_code = code or (200 if ok else 400)
+    return r
 
-@bp.post("/logout")
+@bp.post("/api/login")
+@limiter.limit("5/minute;30/hour")
+def login():
+    j = request.get_json(silent=True) or {}
+    name = str(j.get("username", ""))
+    u = User.query.filter_by(username=name).first()
+    locked = bool(u and is_locked(u))
+    try:                                      # hasło sprawdzamy zawsze (stały czas, także dla nieznanego loginu)
+        ph.verify(u.password_hash if u else DUMMY, str(j.get("password", "")))
+        pw_ok = u is not None
+    except VerifyMismatchError:
+        pw_ok = False
+    # kod TOTP zużywamy dopiero po poprawnym haśle i tylko gdy konto nie jest zablokowane
+    if pw_ok and not locked and verify_totp_once(u, str(j.get("code", ""))):
+        reset_failures(u)
+        login_user(u, remember=False)
+        audit("login ok")
+        return jsonify(ok=True)
+    newly_locked = bool(u and not locked and register_failure(u))
+    audit(f"login FAIL ({name[:32]})" + (" [konto zablokowane]" if locked else "")
+          + (f" -> blokada {LOCK_MINUTES} min" if newly_locked else ""))
+    return _res("Nieprawidłowe dane logowania lub konto jest tymczasowo zablokowane", False, 401)
+
+@bp.post("/api/logout")
 @login_required
 def logout():
     audit("logout"); logout_user()
-    return redirect(url_for("main.login"))
+    return jsonify(ok=True)
 
-@bp.route("/")
-@login_required
-def dashboard():
-    return render_template("dashboard.html", agents=list(agents.AGENTS.values()))
-
-@bp.route("/partials/status")
+@bp.route("/api/status")
 @login_required
 def status():
     last = PingSample.query.order_by(PingSample.id.desc()).first()
     ev = StatusEvent.query.order_by(StatusEvent.id.desc()).first()
     stale = last is None or (now() - last.ts) > timedelta(seconds=3 * int(os.getenv("PING_INTERVAL", 10)) + 5)
-    return render_template("_status.html", last=last, ev=ev, stale=stale,
-                           host=os.getenv("MAIN_HOST"))
+    return jsonify(stale=stale, host=os.getenv("MAIN_HOST"),
+                   state=ev.state if ev else None, since=ev.ts.isoformat() if ev else None,
+                   icmp_ok=bool(last and last.ok), icmp_ms=last.rtt_ms if last else None,
+                   tcp_ok=bool(last and last.tcp_ok), tcp_ms=last.tcp_ms if last else None)
 
 RANGES = {"1h": 1, "6h": 6, "24h": 24, "7d": 168, "30d": 720}
 # uwaga: alias kolumny nie może nazywać się `t` (koliduje z Row.t w SQLAlchemy 2.0)
@@ -97,82 +97,49 @@ def _last_state():
     ev = StatusEvent.query.order_by(StatusEvent.id.desc()).first()
     return ev.state if ev else None
 
-def _result(msg, ok):
-    cls = "ok-t" if ok else "err"
-    r = current_app_response(f'<p class="{cls}">{escape(msg)}</p>')
-    r.headers["HX-Trigger"] = "refresh-status"
-    return r
-
-def current_app_response(html):
-    from flask import make_response
-    return make_response(html)
-
-@bp.post("/actions/wake")
+@bp.post("/api/actions/wake")
 @login_required
 @limiter.limit("5/minute")
 def act_wake():
     if _last_state() == "ONLINE":
-        return _result("Serwer już działa.", False)
+        return _res("Serwer już działa.", False)
     try:
         actions.wake()
     except Exception as e:
         audit(f"wake FAIL: {type(e).__name__}")
-        return _result("Nie udało się wysłać pakietu WoL (usługa wol).", False)
+        return _res("Nie udało się wysłać pakietu WoL (usługa wol).", False)
     db.session.add(StatusEvent(state="BOOTING")); db.session.commit()
     audit("wake")
-    return _result("Wysłano magic packet. Czekam na start serwera…", True)
+    return _res("Wysłano magic packet. Czekam na start serwera…", True)
 
-@bp.post("/actions/shutdown")
+@bp.post("/api/actions/shutdown")
 @login_required
 @limiter.limit("3/minute")
 def act_shutdown():
+    pw = str((request.get_json(silent=True) or {}).get("password", ""))
     try:
-        ph.verify(current_user.password_hash, request.form.get("password", ""))
+        ph.verify(current_user.password_hash, pw)
     except VerifyMismatchError:
         audit("shutdown DENIED (zle haslo)")
-        return _result("Nieprawidłowe hasło.", False)
+        return _res("Nieprawidłowe hasło.", False)
     try:
         actions.shutdown()
     except Exception as e:
         audit(f"shutdown FAIL: {type(e).__name__}: {str(e)[:120]}")
-        return _result(f"Nie udało się wyłączyć: {type(e).__name__}", False)
+        return _res(f"Nie udało się wyłączyć: {type(e).__name__}", False)
     db.session.add(StatusEvent(state="SHUTTING_DOWN")); db.session.commit()
     audit("shutdown")
-    return _result("Wysłano polecenie wyłączenia.", True)
+    return _res("Wysłano polecenie wyłączenia.", True)
 
-TZ = ZoneInfo(os.getenv("PANEL_TZ", "Europe/Warsaw"))
-
-@bp.app_template_filter("gb")
-def _gb(v):
-    return f"{(v or 0) / 1024**3:.1f}"
-
-@bp.app_template_filter("rate")
-def _rate(v):
-    v = v or 0
-    for u in ("B/s", "KB/s", "MB/s", "GB/s"):
-        if v < 1024:
-            return f"{v:.0f} {u}" if u == "B/s" else f"{v:.1f} {u}"
-        v /= 1024
-    return f"{v:.1f} TB/s"
-
-@bp.app_template_filter("uptime")
-def _uptime(sec):
-    d, r = divmod(int(sec or 0), 86400); h, r = divmod(r, 3600)
-    return f"{d}d {h}h {r // 60}m" if d else f"{h}h {r // 60}m"
-
-@bp.app_template_filter("local")
-def _local(dt):
-    """Czas jako <time datetime=ISO>: app.js zamienia go na strefę przeglądarki użytkownika,
-    a tekst w środku (PANEL_TZ) to wersja zapasowa, np. gdy JS jest wyłączony."""
-    if not dt:
-        return "—"
-    return Markup(f'<time class="lt" datetime="{dt.isoformat()}">{dt.astimezone(TZ).strftime("%d.%m %H:%M:%S")}</time>')
-
-@bp.route("/partials/server/<key>")
+@bp.route("/api/servers/<key>")
 @login_required
 def server_card(key):
     a = agents.AGENTS.get(key) or abort(404)
-    return render_template("_server.html", a=a, st=db.session.get(AgentState, key))
+    st = db.session.get(AgentState, key)
+    iso = lambda t: t.isoformat() if t else None
+    return jsonify(key=key, name=a["name"],
+                   state=None if not st else dict(ok=bool(st.ok), error=st.error, checked=iso(st.checked),
+                                                  last_ok=iso(st.last_ok), data=st.data))
 
 M_RAW = """SELECT to_timestamp(floor(extract(epoch from ts)/:s)*:s) AS bucket, avg(cpu) cpu,
   avg(100.0*ram_used/NULLIF(ram_total,0)) ram, max(temp) temp
