@@ -159,7 +159,7 @@ Właścicielem wszystkich funkcji jest **@robajs3** (projekt indywidualny). Stat
 
 ### Kontenery Docker
 
-**Właściciel:** @robajs3 · **Status:** 🧪 zaimplementowane, do potwierdzenia na sprzęcie
+**Właściciel:** @robajs3 · **Status:** ✅ działa
 
 - **Co robi użytkownik:** przegląda kontenery, uruchamia, zatrzymuje i restartuje je (z potwierdzeniem) oraz czyta logi.
 - **Widok:** tabela: nazwa, projekt, obraz, porty, stan, CPU, RAM, restarty, akcje; panel logów pod tabelą.
@@ -169,7 +169,7 @@ Właścicielem wszystkich funkcji jest **@robajs3** (projekt indywidualny). Stat
 
 ### Oś czasu awarii kontenerów
 
-**Właściciel:** @robajs3 · **Status:** 🧪 zaimplementowane, do potwierdzenia na sprzęcie
+**Właściciel:** @robajs3 · **Status:** ✅ działa
 
 - **Co robi użytkownik:** wybiera zakres 6h–30d i widzi, kiedy które kontenery działały, padły albo zostały zatrzymane.
 - **Widok:** poziome paski per kontener (zielony, czerwony, szary) z markerami restartów i OOM oraz lista ostatnich zdarzeń.
@@ -179,7 +179,7 @@ Właścicielem wszystkich funkcji jest **@robajs3** (projekt indywidualny). Stat
 
 ### Stosy docker compose
 
-**Właściciel:** @robajs3 · **Status:** 🧪 zaimplementowane, do potwierdzenia na sprzęcie
+**Właściciel:** @robajs3 · **Status:** ✅ działa
 
 - **Co robi użytkownik:** edytuje plik compose i `.env` stosu (po podaniu hasła), uruchamia Up, Pull, Restart, Down i tworzy nowe stosy.
 - **Widok:** lista stosów, edytor tekstowy z zakładkami compose i `.env`, okno z przebiegiem operacji odświeżane na żywo.
@@ -199,7 +199,7 @@ Właścicielem wszystkich funkcji jest **@robajs3** (projekt indywidualny). Stat
 
 ### Powiadomienia push i alerty (PWA)
 
-**Właściciel:** @robajs3 · **Status:** 🧪 zaimplementowane, do potwierdzenia na sprzęcie
+**Właściciel:** @robajs3 · **Status:** ✅ działa
 
 - **Co robi użytkownik:** instaluje panel jako aplikację na telefonie, włącza powiadomienia i dostaje push, gdy serwer przestanie odpowiadać, kontener padnie albo CPU, RAM, dysk lub temperatura przekroczą progi.
 - **Widok:** ekran „Powiadomienia”: włącz/wyłącz na tym urządzeniu, test powiadomienia, progi alertów, aktywne alerty, lista urządzeń i historia alertów; baner „Zainstaluj aplikację” (na iOS podpowiedź „Udostępnij → Do ekranu początkowego”).
