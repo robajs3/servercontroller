@@ -72,4 +72,4 @@ textarea.code{width:100%;font:13px ui-monospace,monospace;background:#0b0d11;col
 .brand svg{width:18px;height:18px}
 
 .sidebar{display:none}
-.topbar{position:sticky;top:0;z-index:20;display:flex;justify-content:space-between;align-items:center;padding:.6rem 1rem;padding-top:calc(.6rem + env(safe-area-inset-top,0px));background:rgba(15,17,21,.92);-webki
+.topbar{position:sticky;top:0;z-index:20;display:flex;justify-content:space-between;align-items:center;padding:.6rem 1rem;padding-top:calc(.6rem + env(safe-area-inset-top,0px));background:rgba(15,17,21,.92);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
