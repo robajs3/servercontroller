@@ -29,9 +29,10 @@ export function Msg({ msg }) {
   return <p className={msg.ok ? 'ok-t' : 'err'}>{msg.message}</p>;
 }
 
+// Przełącznik zakresu: wybrany przycisk ma aria-pressed="true" (styl w CSS wynika z tego atrybutu)
 export function RangeButtons({ ranges, value, onChange, cls = '' }) {
   return ranges.map(r => (
-    <button key={r} className={`ghost ${cls} ${r === value ? 'on' : ''}`} onClick={() => onChange(r)}>{r}</button>
+    <button key={r} className={`ghost ${cls}`} aria-pressed={r === value} onClick={() => onChange(r)}>{r}</button>
   ));
 }
 
@@ -45,7 +46,10 @@ export function useAgentKey(agents) {
 export function AgentTabs({ agents, current }) {
   return (
     <div className="row tabs">
-      {agents.map(a => <Link key={a.key} className={`tab ${a.key === current ? 'on' : ''}`} to={`?s=${a.key}`}>{a.name}</Link>)}
+      {agents.map(a => (
+        <Link key={a.key} className={`tab ${a.key === current ? 'on' : ''}`}
+              aria-current={a.key === current ? 'page' : undefined} to={`?s=${a.key}`}>{a.name}</Link>
+      ))}
     </div>
   );
 }
