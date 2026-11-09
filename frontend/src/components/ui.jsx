@@ -1,5 +1,6 @@
 import { Link, useSearchParams } from 'react-router-dom';
 import { fmtTime } from '../format.js';
+import { useNow } from '../hooks.js';
 
 export const Pill = ({ cls, sm, children }) => <span className={`pill ${sm ? 'sm ' : ''}${cls || ''}`}>{children}</span>;
 
@@ -19,6 +20,19 @@ export const Tile = ({ label, value, sub, p, wide, children }) => (
 );
 
 export const Time = ({ iso }) => <time dateTime={iso || undefined}>{fmtTime(iso)}</time>;
+
+// "Zaktualizowano X s temu"; przy błędzie odświeżania pokazuje wiek ostatnich udanych danych
+export function Updated({ at, error }) {
+  const now = useNow();
+  if (!at) return null;
+  const s = Math.max(0, Math.round((now - at) / 1000));
+  const ago = s < 60 ? `${s} s` : `${Math.floor(s / 60)} min`;
+  return (
+    <p className={`updated ${error ? 'err' : 'muted'}`}>
+      {error ? `Odświeżanie nie działa, dane sprzed ${ago}` : `Zaktualizowano ${ago} temu`}
+    </p>
+  );
+}
 
 // Komunikat akcji: {ok, message} albo walidacja compose ({validation, output})
 export function Msg({ msg }) {
