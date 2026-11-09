@@ -1,10 +1,10 @@
 import { get } from '../api.js';
 import { usePoll } from '../hooks.js';
-import { Bar, Pill, Time, Tile } from './ui.jsx';
+import { Bar, Pill, Time, Tile, Updated } from './ui.jsx';
 import { gb, pct, rate, uptime } from '../format.js';
 
 export default function ServerCard({ agent }) {
-  const { data, error } = usePoll(() => get('/api/servers/' + agent.key), [agent.key], 10000);
+  const { data, error, updatedAt } = usePoll(() => get('/api/servers/' + agent.key), [agent.key], 10000);
   if (!data) return <section className="card">{error ? <p className="err">{error}</p> : '…'}</section>;
   const st = data.state, d = st && st.data;
   return (
@@ -12,6 +12,7 @@ export default function ServerCard({ agent }) {
       <div className="row"><h3>{data.name}</h3>
         {!st ? <Pill cls="warn">brak danych</Pill> : st.ok ? <Pill cls="ok">agent OK</Pill> : <Pill cls="bad">agent nie odpowiada</Pill>}
       </div>
+      <Updated at={updatedAt} error={error} />
       {d && (
         <>
           {!st.ok && <p className="muted">Ostatnie znane dane z <Time iso={st.last_ok} /> ({st.error})</p>}
