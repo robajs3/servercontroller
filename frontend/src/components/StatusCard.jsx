@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { action, get } from '../api.js';
 import { usePoll } from '../hooks.js';
 import { Msg, Pill, Time, Tile } from './ui.jsx';
+import ConfirmDialog from './ConfirmDialog.jsx';
 
 const LABEL = { ONLINE: 'ONLINE', OFFLINE: 'OFFLINE', BOOTING: 'URUCHAMIANIE…', SHUTTING_DOWN: 'WYŁĄCZANIE…' };
 const CLS = { ONLINE: 'ok', OFFLINE: 'bad' };
@@ -11,19 +12,22 @@ export default function StatusCard({ name }) {
   const [pw, setPw] = useState('');
   const [msg, setMsg] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [dlg, setDlg] = useState(null);   // null | 'wake' | 'shutdown'
+
+  const close = () => { setDlg(null); setPw(''); };
 
   const run = async (url, body) => {
     setBusy(true);
     setMsg(await action(url, body));
     setBusy(false);
+    close();
     reload();
   };
-  const wake = () => window.confirm('Wysłać Wake-on-LAN?') && run('/api/actions/wake');
-  const shutdown = e => {
-    e.preventDefault();
-    if (!window.confirm('Na pewno wyłączyć serwer?')) return;
-    run('/api/actions/shutdown', { password: pw }).then(() => setPw(''));
-  };
+
+  // Przyciski zależne od stanu serwera; przy braku danych (stale) stanu nie znamy
+  const state = s && !s.stale ? s.state : null;
+  const canWake = !busy && state !== 'ONLINE' && state !== 'BOOTING';
+  const canShutdown = !busy && state === 'ONLINE';
 
   return (
     <section className="card">
@@ -41,14 +45,23 @@ export default function StatusCard({ name }) {
         </div>
       )}
       <div className="ctrl">
-        <button onClick={wake} disabled={busy}>Włącz (WoL)</button>
-        <form onSubmit={shutdown}>
-          <input type="password" placeholder="Hasło" autoComplete="current-password" required
-                 value={pw} onChange={e => setPw(e.target.value)} />
-          <button className="danger" disabled={busy}>Wyłącz</button>
-        </form>
+        <button onClick={() => setDlg('wake')} disabled={!canWake}>Włącz (WoL)</button>
+        <button className="danger" onClick={() => setDlg('shutdown')} disabled={!canShutdown}>Wyłącz</button>
       </div>
       <Msg msg={msg} />
+
+      <ConfirmDialog open={dlg === 'wake'} title={`Włączyć ${name}?`} confirmLabel="Wyślij WoL"
+                     busy={busy} onConfirm={() => run('/api/actions/wake')} onCancel={close}>
+        <p>Do serwera {name} zostanie wysłany pakiet Wake-on-LAN.</p>
+      </ConfirmDialog>
+
+      <ConfirmDialog open={dlg === 'shutdown'} title={`Wyłączyć ${name}?`} confirmLabel="Wyłącz" danger
+                     busy={busy} onConfirm={() => run('/api/actions/shutdown', { password: pw })} onCancel={close}>
+        <label>Hasło do konta
+          <input type="password" autoComplete="current-password" required
+                 value={pw} onChange={e => setPw(e.target.value)} />
+        </label>
+      </ConfirmDialog>
     </section>
   );
 }
