@@ -22,7 +22,7 @@ export default function ResourcesChart({ agents }) {
   return (
     <section className="card">
       <div className="row"><h3>Zasoby</h3>
-        {agents.map(a => <button key={a.key} className={`ghost ${a.key === srv ? 'on' : ''}`} onClick={() => setSrv(a.key)}>{a.name}</button>)}
+        {agents.map(a => <button key={a.key} className="ghost" aria-pressed={a.key === srv} onClick={() => setSrv(a.key)}>{a.name}</button>)}
         <RangeButtons ranges={RANGES_PING} value={range} onChange={setRange} />
       </div>
       {error && <p className="err">Nie udało się pobrać danych: {error}</p>}
