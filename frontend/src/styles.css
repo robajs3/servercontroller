@@ -130,3 +130,7 @@ textarea.code{width:100%;font:13px ui-monospace,monospace;background:#0b0d11;col
   button{min-height:2.6rem}button.sm{min-height:2.2rem}
   input,textarea{font-size:16px}
 }
+.dialog{border:0;border-radius:14px;background:var(--card);color:var(--fg);padding:1.2rem;width:min(92vw,24rem)}
+.dialog::backdrop{background:rgba(0,0,0,.6)}
+.dlg-btns{display:flex;justify-content:flex-end;gap:.5rem;margin-top:1rem}
+.dialog label{display:block}.dialog input{display:block;width:100%;margin-top:.3rem}
