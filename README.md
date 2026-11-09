@@ -80,12 +80,12 @@ Właścicielem wszystkich funkcji jest **@robajs3** (projekt indywidualny). Stat
 | [Wyłączanie serwera](#wyłączanie-serwera) | 🧪 zaimplementowane, do potwierdzenia na sprzęcie | @robajs3 |
 | [Zasoby serwerów](#zasoby-serwerów) | ✅ działa | @robajs3 |
 | [Wykresy zasobów](#wykresy-zasobów) | ✅ działa | @robajs3 |
-| [Kontenery Docker](#kontenery-docker) | 🧪 zaimplementowane, do potwierdzenia na sprzęcie | @robajs3 |
-| [Oś czasu awarii kontenerów](#oś-czasu-awarii-kontenerów) | 🧪 zaimplementowane, do potwierdzenia na sprzęcie | @robajs3 |
-| [Stosy docker compose](#stosy-docker-compose) | 🧪 zaimplementowane, do potwierdzenia na sprzęcie | @robajs3 |
+| [Kontenery Docker](#kontenery-docker) | ✅ działa, do potwierdzenia na sprzęcie | @robajs3 |
+| [Oś czasu awarii kontenerów](#oś-czasu-awarii-kontenerów) | ✅ działa | @robajs3 |
+| [Stosy docker compose](#stosy-docker-compose) | ✅ działa | @robajs3 |
 | [Podgląd z kamery](#podgląd-z-kamery) | 🧪 zaimplementowane, do potwierdzenia na sprzęcie | @robajs3 |
-| [Powiadomienia push i alerty (PWA)](#powiadomienia-push-i-alerty-pwa) | 🧪 zaimplementowane, do potwierdzenia na sprzęcie | @robajs3 |
-| [Interfejs w React (SPA)](#interfejs-w-react-spa) | ⬜ planowane | @robajs3 |
+| [Powiadomienia push i alerty (PWA)](#powiadomienia-push-i-alerty-pwa) | ✅ działa | @robajs3 |
+| [Interfejs w React (SPA)](#interfejs-w-react-spa) | ✅ działa | @robajs3 |
 
 ### Logowanie, 2FA i dziennik zdarzeń
 
