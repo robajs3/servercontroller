@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 // Cykliczne pobieranie danych: tylko gdy karta jest widoczna, natychmiast po powrocie na kartę
-// i na żądanie (reload). Zwraca {data, error, loading, reload}.
+// i na żądanie (reload). Zwraca {data, error, loading, updatedAt, reload}.
+// updatedAt to czas (ms) ostatniego udanego pobrania; przy błędzie zostaje stary, razem ze starymi danymi.
 export function usePoll(fn, deps, intervalMs) {
-  const [state, setState] = useState({ data: null, error: null, loading: true });
+  const [state, setState] = useState({ data: null, error: null, loading: true, updatedAt: null });
   const fnRef = useRef(fn);
   fnRef.current = fn;
   const alive = useRef(true);
@@ -13,7 +14,7 @@ export function usePoll(fn, deps, intervalMs) {
     const my = ++seq.current;
     try {
       const data = await fnRef.current();
-      if (alive.current && my === seq.current) setState({ data, error: null, loading: false });
+      if (alive.current && my === seq.current) setState({ data, error: null, loading: false, updatedAt: Date.now() });
     } catch (e) {
       if (alive.current && my === seq.current) setState(s => ({ ...s, error: e.message || String(e), loading: false }));
     }
@@ -32,6 +33,16 @@ export function usePoll(fn, deps, intervalMs) {
   }, [...deps, intervalMs]);
 
   return { ...state, reload };
+}
+
+// Aktualny czas (ms), odświeżany co `ms`; do napisów typu "X s temu"
+export function useNow(ms = 1000) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), ms);
+    return () => clearInterval(t);
+  }, [ms]);
+  return now;
 }
 
 // Stan komunikatu akcji {ok, message}
