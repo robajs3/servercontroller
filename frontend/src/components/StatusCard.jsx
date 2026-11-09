@@ -1,14 +1,14 @@
 import { useState } from 'react';
 import { action, get } from '../api.js';
 import { usePoll } from '../hooks.js';
-import { Msg, Pill, Time, Tile } from './ui.jsx';
+import { Msg, Pill, Time, Tile, Updated } from './ui.jsx';
 import ConfirmDialog from './ConfirmDialog.jsx';
 
 const LABEL = { ONLINE: 'ONLINE', OFFLINE: 'OFFLINE', BOOTING: 'URUCHAMIANIE…', SHUTTING_DOWN: 'WYŁĄCZANIE…' };
 const CLS = { ONLINE: 'ok', OFFLINE: 'bad' };
 
 export default function StatusCard({ name }) {
-  const { data: s, error, reload } = usePoll(() => get('/api/status'), [], 5000);
+  const { data: s, error, updatedAt, reload } = usePoll(() => get('/api/status'), [], 5000);
   const [pw, setPw] = useState('');
   const [msg, setMsg] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -32,6 +32,7 @@ export default function StatusCard({ name }) {
   return (
     <section className="card">
       <h3>{name}</h3>
+      <Updated at={updatedAt} error={error} />
       {!s ? (error ? <p className="err">{error}</p> : '…') : s.stale ? (
         <><Pill cls="warn">BRAK DANYCH</Pill><p className="muted">Worker nie zapisuje pomiarów.</p></>
       ) : (
