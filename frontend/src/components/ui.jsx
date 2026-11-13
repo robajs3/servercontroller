@@ -34,13 +34,20 @@ export function Updated({ at, error }) {
   );
 }
 
-// Komunikat akcji: {ok, message} albo walidacja compose ({validation, output})
-export function Msg({ msg }) {
+export function Msg({ msg, onClose }) {
   if (!msg) return null;
-  if (msg.validation) {
-    return (<><p className="err">Walidacja nie przeszła, plik NIE został zapisany:</p><pre className="log">{msg.output}</pre></>);
-  }
-  return <p className={msg.ok ? 'ok-t' : 'err'}>{msg.message}</p>;
+  return (
+    <div className="msg" role={msg.ok ? 'status' : 'alert'}>
+      <div>
+        {msg.validation ? (
+          <><p className="err">Walidacja nie przeszła, plik NIE został zapisany:</p><pre className="log">{msg.output}</pre></>
+        ) : (
+          <p className={msg.ok ? 'ok-t' : 'err'}>{msg.message}</p>
+        )}
+      </div>
+      {onClose && <button type="button" className="ghost sm" aria-label="Zamknij komunikat" onClick={onClose}>✕</button>}
+    </div>
+  );
 }
 
 // Przełącznik zakresu: wybrany przycisk ma aria-pressed="true" (styl w CSS wynika z tego atrybutu)
