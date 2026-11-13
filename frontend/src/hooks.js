@@ -45,8 +45,12 @@ export function useNow(ms = 1000) {
   return now;
 }
 
-// Stan komunikatu akcji {ok, message}
-export function useMsg() {
+export function useMsg(okMs = 6000) {
   const [msg, setMsg] = useState(null);
+  useEffect(() => {
+    if (!msg || !msg.ok) return;
+    const t = setTimeout(() => setMsg(null), okMs);
+    return () => clearTimeout(t);
+  }, [msg, okMs]);
   return [msg, setMsg];
 }
