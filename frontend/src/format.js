@@ -33,3 +33,8 @@ export const RANGES_PING = ['1h', '6h', '24h', '7d', '30d'];
 export const tickFmt = range => range.endsWith('d')
   ? { day: '2-digit', month: '2-digit', hour: '2-digit' }
   : { hour: '2-digit', minute: '2-digit' };
+
+
+// Do opisów tekstowych wykresów: ostatnia wartość różna od null i maksimum serii
+export const lastOf = a => { for (let i = a.length - 1; i >= 0; i--) if (a[i] != null) return a[i]; return null; };
+export const maxOf = a => { const v = a.filter(x => x != null); return v.length ? Math.max(...v) : null; };
