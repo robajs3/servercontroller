@@ -228,7 +228,7 @@ milkną, gdy serwer jest wyłączony (agent o kluczu `MAIN_AGENT_KEY`).
 
 ### Interfejs w React (SPA)
 
-**Właściciel:** @robajs3 · **Status:** ⬜ planowane
+**Właściciel:** @robajs3 · **Status:** ✅ zrobione
 
 - **Co robi użytkownik:** korzysta z tego samego panelu, ale jako szybkiej aplikacji jednostronicowej bez przeładowań strony.
 - **Widok:** komponenty z tabeli w sekcji „Frontend: React (SPA)”: dashboard, wykresy, przyciski sterujące, tabela kontenerów.
