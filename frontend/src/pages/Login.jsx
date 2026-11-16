@@ -24,10 +24,13 @@ export default function Login() {
   return (
     <form className="card narrow" onSubmit={submit}>
       <h2>Logowanie</h2>
-      {err && <p className="err">{err}</p>}
-      <input name="username" placeholder="Użytkownik" autoComplete="username" required autoFocus value={f.username} onChange={set('username')} />
-      <input name="password" type="password" placeholder="Hasło" autoComplete="current-password" required value={f.password} onChange={set('password')} />
-      <input name="code" placeholder="Kod 2FA (6 cyfr)" inputMode="numeric" autoComplete="one-time-code" required value={f.code} onChange={set('code')} />
+      {err && <p className="err" role="alert">{err}</p>}
+      <label className="sr-only" htmlFor="login-user">Użytkownik</label>
+      <input id="login-user" name="username" placeholder="Użytkownik" autoComplete="username" required autoFocus value={f.username} onChange={set('username')} />
+      <label className="sr-only" htmlFor="login-pw">Hasło</label>
+      <input id="login-pw" name="password" type="password" placeholder="Hasło" autoComplete="current-password" required value={f.password} onChange={set('password')} />
+      <label className="sr-only" htmlFor="login-code">Kod 2FA (6 cyfr)</label>
+      <input id="login-code" name="code" placeholder="Kod 2FA (6 cyfr)" inputMode="numeric" autoComplete="one-time-code" required value={f.code} onChange={set('code')} />
       <button disabled={busy}>Zaloguj</button>
     </form>
   );

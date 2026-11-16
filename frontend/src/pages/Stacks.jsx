@@ -121,9 +121,11 @@ function Editor({ srv, name, kind, setKind }) {
         <>
           {!file.exists && <p className="muted">Plik {file.file} jeszcze nie istnieje, zapis go utworzy.</p>}
           <form onSubmit={save}>
-            <textarea className="code" rows="22" spellCheck="false" value={content} onChange={e => setContent(e.target.value)} />
+            <label className="sr-only" htmlFor="stack-edit-content">Zawartość pliku {name}</label>
+            <textarea id="stack-edit-content" className="code" rows="22" spellCheck="false" value={content} onChange={e => setContent(e.target.value)} />
             <div className="row">
-              <input type="password" placeholder="Hasło" autoComplete="current-password" required className="pwin"
+              <label className="sr-only" htmlFor="stack-edit-pw">Hasło do konta</label>
+              <input id="stack-edit-pw" type="password" placeholder="Hasło" autoComplete="current-password" required className="pwin"
                      value={pw} onChange={e => setPw(e.target.value)} />
               <button>Zapisz</button>
             </div>
@@ -150,9 +152,12 @@ function NewStack({ srv, onCreated }) {
     <section className="card">
       <details><summary><b>Nowy stos</b></summary>
         <form onSubmit={submit}>
-          <input placeholder="nazwa (np. moja-apka)" pattern="[a-z0-9][a-z0-9_\-]{0,40}" required value={name} onChange={e => setName(e.target.value)} />
-          <textarea className="code" rows="12" spellCheck="false" required value={content} onChange={e => setContent(e.target.value)} />
-          <input type="password" placeholder="Hasło" autoComplete="current-password" required value={pw} onChange={e => setPw(e.target.value)} />
+          <label className="sr-only" htmlFor="stack-new-name">Nazwa nowego stosu</label>
+          <input id="stack-new-name" placeholder="nazwa (np. moja-apka)" pattern="[a-z0-9][a-z0-9_\-]{0,40}" required value={name} onChange={e => setName(e.target.value)} />
+          <label className="sr-only" htmlFor="stack-new-content">Zawartość docker-compose nowego stosu</label>
+          <textarea id="stack-new-content" className="code" rows="12" spellCheck="false" required value={content} onChange={e => setContent(e.target.value)} />
+          <label className="sr-only" htmlFor="stack-new-pw">Hasło do konta</label>
+          <input id="stack-new-pw" type="password" placeholder="Hasło" autoComplete="current-password" required value={pw} onChange={e => setPw(e.target.value)} />
           <button>Utwórz</button>
         </form>
         <Msg msg={msg} />
