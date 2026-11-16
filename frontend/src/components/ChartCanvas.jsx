@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import {
   BarController, BarElement, CategoryScale, Chart, Legend, LineController, LineElement,
   LinearScale, PointElement, Tooltip,
@@ -11,7 +11,8 @@ Chart.defaults.borderColor = '#262a33';
 
 // Wykres liniowy z osią czasu (etykiety = ISO). `range` wpływa tylko na format etykiet osi X.
 // Instancja powstaje raz; dane podmieniane są bez animacji, jak w oryginale.
-export default function ChartCanvas({ labels, datasets, range, scales = {} }) {
+export default function ChartCanvas({ labels, datasets, range, scales = {}, label, summary }) {
+  const sumId = useId();
   const ref = useRef(null);
   const chart = useRef(null);
   const rangeRef = useRef(range);
@@ -42,5 +43,10 @@ export default function ChartCanvas({ labels, datasets, range, scales = {} }) {
     c.update('none');
   }, [labels, datasets, range]);
 
-  return <div className="chartbox"><canvas ref={ref} /></div>;
+  return (
+    <>
+      <div className="chartbox"><canvas ref={ref} role="img" aria-label={label} aria-describedby={summary ? sumId : undefined} /></div>
+      {summary && <p id={sumId} className="muted chart-sum">{summary}</p>}
+    </>
+  );
 }

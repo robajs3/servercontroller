@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { get, qs } from '../api.js';
 import { usePoll } from '../hooks.js';
-import { RANGES_PING } from '../format.js';
+import { RANGES_PING, lastOf, maxOf } from '../format.js';
 import ChartCanvas from './ChartCanvas.jsx';
 import { RangeButtons, Updated } from './ui.jsx';
 
@@ -19,6 +19,17 @@ export default function ResourcesChart({ agents }) {
       datasets: [line('CPU %', d.map(x => x.cpu), '#60a5fa'), line('RAM %', d.map(x => x.ram), '#c084fc'), line('Temp °C', d.map(x => x.temp), '#fb923c')],
     };
   }, [data]);
+  const summary = useMemo(() => {
+    if (!data) return '';
+    if (!data.length) return `Zakres ${range}: brak pomiarów.`;
+    const part = (name, key, unit) => {
+      const v = data.map(x => x[key]);
+      const last = lastOf(v);
+      return last == null ? null : `${name} ostatnio ${last.toFixed(0)}${unit} (maks. ${maxOf(v).toFixed(0)}${unit})`;
+    };
+    const name = agents.find(a => a.key === srv)?.name || srv;
+    return `${name}, zakres ${range}: ` + [part('CPU', 'cpu', '%'), part('RAM', 'ram', '%'), part('temperatura', 'temp', '°C')].filter(Boolean).join(', ') + '.';
+  }, [data, range, srv, agents]);
   return (
     <section className="card">
       <div className="row"><h3>Zasoby</h3>
@@ -27,7 +38,7 @@ export default function ResourcesChart({ agents }) {
       </div>
       <Updated at={updatedAt} error={error} />
       {error && <p className="err">Nie udało się pobrać danych: {error}</p>}
-      <ChartCanvas labels={labels} datasets={datasets} range={range} scales={SCALES} />
+      <ChartCanvas labels={labels} datasets={datasets} range={range} scales={SCALES} label="Wykres zużycia zasobów serwera" summary={summary} />
     </section>
   );
 }
