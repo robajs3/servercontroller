@@ -10,6 +10,11 @@ export class ApiError extends Error {
 }
 
 export async function request(method, url, body, { auth = true } = {}) {
+  // Tryb mock (npm run dev:mock): zamiast fetch odpowiada src/mocks. W buildzie produkcyjnym ten blok znika.
+  if (import.meta.env.VITE_USE_MOCKS === '1') {
+    const { mockRequest } = await import('./mocks/index.js');
+    return mockRequest(method, url, body);
+  }
   const headers = { Accept: 'application/json' };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (method !== 'GET') headers['X-CSRFToken'] = csrf;
