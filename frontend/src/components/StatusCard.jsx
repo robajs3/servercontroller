@@ -26,7 +26,7 @@ export default function StatusCard({ name }) {
 
   // Przyciski zależne od stanu serwera; przy braku danych (stale) stanu nie znamy
   const state = s && !s.stale ? s.state : null;
-  const canWake = !busy && state !== 'ONLINE' && state !== 'BOOTING';
+  const canWake = !busy && state !== 'ONLINE' && state !== 'BOOTING' && state !== 'SHUTTING_DOWN';
   const canShutdown = !busy && state === 'ONLINE';
 
   return (
